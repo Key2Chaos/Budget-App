@@ -56,8 +56,13 @@ No backend, no account. All data lives on the device in IndexedDB.
   - **Matching:** each transaction is matched to an entry by name (whole words), amount and due date,
     then logged as a payment. Your choices are remembered for next time, e.g. "ORIGIN ENERGY" →
     *Electricity & gas*, or "always ignore this payee".
-  - **No duplicates:** importing an overlapping statement never logs the same transaction twice. Keep
-    the same account name each time.
+  - **No duplicates:** importing an overlapping statement never logs the same transaction twice.
+    Choose the same account each time; the app suggests the one a file was imported into before.
+  - **Payments you logged yourself** (typed in, or *Mark paid*) aren't doubled up. A bank transaction
+    within 4 days and 1% of one updates it to the bank's actual date and amount, shown as
+    "already logged" on the review screen.
+  - **Renaming an account** (Settings → Bank statements → Rename) is safe: transactions are still
+    recognised, and entries using the old name as their payment method are updated.
   - **Recurring payments you haven't added**, e.g. "Disney Plus, 3 × $13.99 monthly", can be added as
     entries with one tap, past payments included.
 - **Spreadsheet export** (Settings → Export spreadsheet): three CSV files (entries, payments and

@@ -261,6 +261,42 @@ export function suggest(txns, entries, rules = {}) {
   });
 }
 
+// ---------- Payments already logged by hand ----------
+
+/** How close a hand-logged payment must be to a bank transaction to be treated as the same one. */
+export const LINK_DAYS = 4;
+
+/**
+ * Pair transactions with payments the user already logged themselves (typed in, or "Mark paid"),
+ * so the bank's copy updates that payment instead of adding a second one. A payment counts when
+ * it has no bank source, the amount is within 1% (or 1c), and it's within LINK_DAYS days. Each
+ * payment pairs with at most one transaction, the nearest in date.
+ * decisions: Map txnId → entry id (other values are ignored). Returns Map txnId → payment.
+ */
+export function planLinks(txns, decisions, entriesById) {
+  const pairs = [];
+  for (const t of txns) {
+    const e = entriesById.get(decisions.get(t.id));
+    if (!e) continue;
+    const amt = e.type === 'expense' ? -t.amount : t.amount;
+    for (const p of e.payments || []) {
+      if (p.source || !Number.isFinite(p.amount)) continue;
+      const days = Math.abs(C.daysBetween(p.date, t.date));
+      if (days <= LINK_DAYS && Math.abs(p.amount - amt) <= Math.max(0.01, Math.abs(amt) * 0.01) + 1e-9) {
+        pairs.push({ t, p, days, diff: Math.abs(p.amount - amt) });
+      }
+    }
+  }
+  pairs.sort((a, b) => a.days - b.days || a.diff - b.diff);
+  const out = new Map(), used = new Set();
+  for (const { t, p } of pairs) {
+    if (out.has(t.id) || used.has(p.id)) continue;
+    out.set(t.id, p);
+    used.add(p.id);
+  }
+  return out;
+}
+
 // ---------- Recurring payments you haven't added ----------
 
 const FREQ_BANDS = [

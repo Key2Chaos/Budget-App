@@ -614,6 +614,11 @@ async function renderSettings() {
         <div class="row-sub">Match transactions to your bills and log them as payments. CommBank and most banks.</div></div>
       </button>
       <input type="file" id="bankFile" accept=".csv,text/csv,text/comma-separated-values" hidden>
+      ${accountKeys().map(k => `<div class="row static label-row">
+        <div class="row-main"><div class="row-title">${esc(accountName(k))}</div>
+        <div class="row-sub">Imported account</div></div>
+        <button type="button" class="btn small" data-action="rename-account" data-key="${esc(k)}" aria-label="Rename ${esc(accountName(k))}">Rename</button>
+      </div>`).join('')}
     </section>
     <p class="fine pad-x">Download a CSV from your bank's website or app first. The file is read on this device only.
       ${Object.keys(state.settings.payeeRules || {}).length ? `${Object.keys(state.settings.payeeRules).length} remembered payee choices.` : ''}</p>
@@ -970,6 +975,39 @@ function openBudgets() {
 // ---------- Bank statement import ----------
 let imp = null; // the import being reviewed
 
+/**
+ * Import accounts are stored by the name first used for them (it's part of each transaction's id).
+ * accountNames holds an optional newer display name, so an account can be renamed safely.
+ */
+const accountKeys = () => state.settings.bankAccounts || [];
+const accountName = key => state.settings.accountNames?.[key.toLowerCase()] || key;
+const findAccount = name => {
+  const n = cleanLabel(name).toLowerCase();
+  return accountKeys().find(k => k.toLowerCase() === n || accountName(k).toLowerCase() === n);
+};
+
+async function renameAccount(key) {
+  const from = accountName(key);
+  const input = prompt(`Rename the account “${from}” to:`, from);
+  if (input == null) return;
+  const to = cleanLabel(input);
+  if (!to || to === from) return;
+  const clash = findAccount(to);
+  if (clash && clash !== key) { alert(`There's already an account called “${accountName(clash)}”.`); return; }
+  const names = { ...(state.settings.accountNames || {}) };
+  if (to.toLowerCase() === key.toLowerCase()) delete names[key.toLowerCase()];
+  else names[key.toLowerCase()] = to;
+  state.settings.accountNames = names;
+  // Entries added from an import use the account as their payment method; keep those in step.
+  const now = new Date().toISOString();
+  const changed = state.entries.filter(e => (e.method || '').toLowerCase() === from.toLowerCase())
+    .map(e => ({ ...e, method: to, updatedAt: now }));
+  if (changed.length) await db.putEntries(changed);
+  await saveSettings();
+  await reload();
+  toast(changed.length ? `Renamed · ${changed.length} entr${changed.length === 1 ? 'y' : 'ies'} updated` : 'Account renamed');
+}
+
 async function startBankImport(file) {
   let text;
   try { text = await file.text(); } catch { alert('Couldn’t read that file.'); return; }
@@ -981,12 +1019,17 @@ async function startBankImport(file) {
   }
   const detected = Bank.detectDateOrder(rows.slice(fmt.hasHeader ? 1 : 0).map(r => r[fmt.date]));
   const order = detected || (REGION === 'US' ? 'MDY' : 'DMY');
-  const accounts = state.settings.bankAccounts || [];
   const guess = `${fmt.bank} ${fmt.kind === 'card' ? 'credit card' : 'account'}`;
+  // Pick the account this file most likely belongs to: one its transactions were already imported
+  // into, else one with the suggested name, else the most recently used.
+  const known = new Set(state.entries.flatMap(e => (e.payments || []).map(p => p.source).filter(Boolean)));
+  (state.settings.ignoredTxns || []).forEach(id => known.add(id));
+  const txns = Bank.toTransactions(rows, fmt, order);
+  const seen = accountKeys().find(k => Bank.withIds(txns, k).some(t => known.has(t.id)));
   imp = {
-    fileName: file.name, rows, fmt, order, orderDetected: !!detected,
-    account: accounts.find(a => a.toLowerCase() === guess.toLowerCase()) || accounts[0] || guess,
-    newGroups: new Set(),
+    fileName: file.name, rows, fmt, order, orderDetected: !!detected, guess,
+    account: seen || findAccount(guess) || accountKeys()[0] || guess,
+    newAccount: !accountKeys().length, newGroups: new Set(),
   };
   buildImport();
   openImport();
@@ -1005,12 +1048,17 @@ function buildImport() {
   imp.txns = Bank.suggest(fresh, state.entries.filter(e => !C.isEnded(e, C.addDaysISO(C.todayISO(), -90))), state.settings.payeeRules || {})
     .sort((a, b) => b.date.localeCompare(a.date));
   imp.decision = new Map(imp.txns.map(t => [t.id, t.action]));
+  imp.links = new Map();
   imp.recurring = Bank.findRecurring(imp.txns.filter(t => !t.action));
   imp.newGroups = new Set([...imp.newGroups].filter(k => imp.recurring.some(g => g.key === k)));
   imp.range = all.length ? [all.reduce((m, t) => (t.date < m ? t.date : m), all[0].date), all.reduce((m, t) => (t.date > m ? t.date : m), all[0].date)] : null;
 }
 
+/** Which transactions update a payment the user already logged by hand (for the current choices). */
+const importLinks = () => Bank.planLinks(imp.txns, imp.decision, new Map(state.entries.map(e => [e.id, e])));
+
 function openImport() {
+  imp.links = importLinks();
   const sample = imp.rows[imp.fmt.hasHeader ? 1 : 0]?.[imp.fmt.date] || '';
   const sampleISO = Bank.parseDate(sample, imp.order);
   const entriesBy = type => state.entries.filter(e => e.type === type).sort((a, b) => a.name.localeCompare(b.name));
@@ -1032,7 +1080,9 @@ function openImport() {
   };
   const txRow = t => {
     const d = imp.decision.get(t.id) || '';
-    const tag = t.why === 'rule' ? '<span class="pill">remembered</span>' : t.why === 'match' && d === t.action ? '<span class="pill soon">matched</span>' : '';
+    const link = imp.links.get(t.id);
+    const tag = (link ? `<span class="pill">already logged${link.date !== t.date ? ` ${esc(fmtDate(link.date))}` : ''}</span>` : '')
+      + (t.why === 'rule' ? '<span class="pill">remembered</span>' : t.why === 'match' && d === t.action ? '<span class="pill soon">matched</span>' : '');
     return `<div class="imp-row ${d && !d.startsWith('ignore') ? 'chosen' : ''} ${d.startsWith('ignore') ? 'ignored' : ''}">
       <div class="imp-top">
         <span class="imp-date">${esc(fmtDate(t.date))}</span>
@@ -1056,18 +1106,23 @@ function openImport() {
     <div class="sheet-body">
       <section class="card form">
         <div class="field"><span>File</span><div class="imp-file">${esc(imp.fileName)}<br><span class="muted">${imp.total} transactions${imp.range ? ` · ${fmtDate(imp.range[0])} – ${fmtDate(imp.range[1])}` : ''}</span></div></div>
-        <label class="field"><span>Account</span>
-          <input id="impAccount" list="dl-accounts" value="${esc(imp.account)}" autocomplete="off" aria-label="Account name"></label>
+        ${accountKeys().length ? `<label class="field"><span>Account</span>
+          <select id="impAccountPick" aria-label="Account">
+            ${accountKeys().map(k => `<option value="${esc(k)}" ${!imp.newAccount && k === imp.account ? 'selected' : ''}>${esc(accountName(k))}</option>`).join('')}
+            <option value="" ${imp.newAccount ? 'selected' : ''}>New account…</option>
+          </select></label>` : ''}
+        ${imp.newAccount ? `<label class="field"><span>${accountKeys().length ? 'New account' : 'Account'}</span>
+          <input id="impAccount" value="${esc(imp.account)}" autocomplete="off" aria-label="Account name"></label>` : ''}
         <div class="field"><span>Dates are</span>
           <div class="seg small grow">
             <button type="button" data-order="DMY" class="${imp.order === 'DMY' ? 'on' : ''}">Day/Month</button>
             <button type="button" data-order="MDY" class="${imp.order === 'MDY' ? 'on' : ''}">Month/Day</button>
           </div></div>
-        <datalist id="dl-accounts">${(state.settings.bankAccounts || []).map(a => `<option value="${esc(a)}">`).join('')}</datalist>
       </section>
       <p class="fine pad-x">${imp.orderDetected ? 'Date order detected from the file.' : '<strong>Check the date order:</strong> this file could be read either way.'}
         ${sample ? `First row: ${esc(sample)} → ${sampleISO ? esc(dayMonthYear.format(C.parse(sampleISO))) : 'not a valid date'}.` : ''}
-        Keep the account name the same each time so repeated transactions are recognised.</p>
+        Choose the same account each time so transactions you've already imported are recognised.
+        You can rename an account in Settings.</p>
       ${imp.already ? `<p class="fine pad-x"><strong>${imp.already}</strong> already imported or ignored — skipped.</p>` : ''}
 
       ${imp.recurring.length ? `<div class="group-title">Looks recurring — not in your entries yet</div>
@@ -1096,8 +1151,18 @@ function openImport() {
   root.addEventListener('change', ev => {
     const s = ev.target.closest('select[data-txn]');
     if (s) { imp.decision.set(s.dataset.txn, s.value); return openImportKeepScroll(); }
+    if (ev.target.id === 'impAccountPick') {
+      const k = ev.target.value;
+      imp.newAccount = !k;
+      imp.account = k || (findAccount(imp.guess) ? `${imp.guess} 2` : imp.guess);
+      buildImport(); return openImportKeepScroll();
+    }
     if (ev.target.id === 'impAccount') {
-      imp.account = cleanLabel(ev.target.value) || imp.account;
+      const name = cleanLabel(ev.target.value);
+      if (!name) return openImportKeepScroll();
+      const existing = findAccount(name); // typed the name of an account that exists: use it
+      imp.account = existing || name;
+      imp.newAccount = !existing;
       buildImport(); openImportKeepScroll();
     }
   });
@@ -1141,7 +1206,8 @@ async function applyImport() {
   const ignored = [...(state.settings.ignoredTxns || [])];
   const changed = new Map(); // entry id → updated entry
   const get = id => changed.get(id) || state.entries.find(e => e.id === id);
-  let logged = 0, ignoredCount = 0;
+  let logged = 0, ignoredCount = 0, linked = 0;
+  const links = importLinks();
 
   // New entries from recurring groups
   for (const key of imp.newGroups) {
@@ -1150,7 +1216,7 @@ async function applyImport() {
     const id = uid();
     const start = g.txns[0].date;
     changed.set(id, {
-      id, type: g.type, name: g.name, category: '', method: imp.account, frequency: g.frequency, startDate: start,
+      id, type: g.type, name: g.name, category: '', method: accountName(imp.account), frequency: g.frequency, startDate: start,
       contractEnd: null, endsAtExpiry: false, endDate: null, notes: `Added from a bank import (${g.payee})`, tags: [],
       prices: [{ from: start, amount: g.variable ? null : g.amount, frequency: g.frequency }],
       variable: g.variable, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
@@ -1173,8 +1239,18 @@ async function applyImport() {
     // Payments are stored as the bill amount: money out on an expense (or in on income) is positive;
     // the other direction is a refund/credit (negative).
     const amount = e.type === 'expense' ? -t.amount : t.amount;
-    const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note: t.description.slice(0, 100), source: t.id };
-    changed.set(e.id, { ...e, payments: [...(e.payments || []), payment], updatedAt: now });
+    const link = links.get(t.id);
+    if (link) {
+      // Already logged by hand: keep that payment, but take the bank's actual date and amount.
+      const payments = e.payments.map(p => (p.id === link.id
+        ? { ...p, date: t.date, amount, due: p.due || Bank.nearestDue(e, t.date), note: p.note || t.description.slice(0, 100), source: t.id }
+        : p));
+      changed.set(e.id, { ...e, payments, updatedAt: now });
+      linked++;
+    } else {
+      const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note: t.description.slice(0, 100), source: t.id };
+      changed.set(e.id, { ...e, payments: [...(e.payments || []), payment], updatedAt: now });
+    }
     if (!d.startsWith('new:')) rules[t.payee] = e.id;
     logged++;
   }
@@ -1189,7 +1265,8 @@ async function applyImport() {
   imp = null;
   closeSheet();
   await reload();
-  toast(`Logged ${logged} payment${logged === 1 ? '' : 's'}${added ? `, added ${added} entr${added === 1 ? 'y' : 'ies'}` : ''}${ignoredCount ? `, ignored ${ignoredCount}` : ''}`);
+  const fresh = logged - linked;
+  toast(`Logged ${fresh} payment${fresh === 1 ? '' : 's'}${linked ? `, updated ${linked} you'd logged` : ''}${added ? `, added ${added} entr${added === 1 ? 'y' : 'ies'}` : ''}${ignoredCount ? `, ignored ${ignoredCount}` : ''}`);
 }
 
 // ---------- Manage labels sheet ----------
@@ -1578,6 +1655,7 @@ const actions = {
   'manage-labels': () => openManage('category'),
   'manage-budgets': () => { editingBudget = null; openBudgets(); },
   'import-bank': () => $('#bankFile').click(),
+  'rename-account': t => renameAccount(t.dataset.key),
   period: async t => { state.settings.period = t.dataset.period; await saveSettings(); render(); },
   'export-csv': exportCSV,
   'mark-paid': async t => {
@@ -1608,7 +1686,7 @@ const actions = {
     if (!confirm('Are you sure? This cannot be undone.')) return;
     await db.clearEntries();
     Object.assign(state.settings, { lastBackup: null, budgets: [], balance: null, paydayId: null,
-      payeeRules: {}, ignoredTxns: [], bankAccounts: [] });
+      payeeRules: {}, ignoredTxns: [], bankAccounts: [], accountNames: {} });
     await saveSettings();
     await reload();
     toast('All data erased');

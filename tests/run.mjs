@@ -456,6 +456,38 @@ test('import memory (rules, ignored, accounts) survives a backup round trip', ()
   assert.deepEqual(settings.bankAccounts, ['CommBank card']);
 });
 
+test('renamed import accounts survive a backup round trip', () => {
+  const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
+    settings: { bankAccounts: ['CommBank credit card'], accountNames: { 'CommBank Credit Card': ' Everyday  card ', x: '' } } });
+  assert.deepEqual(settings.accountNames, { 'commbank credit card': 'Everyday card' });
+});
+
+test('a payment logged by hand is updated by the bank copy, not duplicated', () => {
+  const e = normalizeEntry({ id: 'w', type: 'expense', name: 'Window cleaner', frequency: 'monthly', manual: true,
+    startDate: '2026-01-05', prices: [{ from: '2026-01-05', amount: 20 }],
+    payments: [
+      { id: 'p1', date: '2026-11-07', amount: 20, due: '2026-11-05' },          // Mark paid, 2 days after the bank
+      { id: 'p2', date: '2026-10-05', amount: 20, source: 'tOld' },             // already from an import
+      { id: 'p3', date: '2026-09-05', amount: 25 },                             // different amount
+    ] });
+  const txns = [
+    { id: 'a', date: '2026-11-05', amount: -20 },
+    { id: 'b', date: '2026-11-06', amount: -20 },   // a second transfer: p1 is already taken by the nearer one
+    { id: 'c', date: '2026-10-05', amount: -20 },   // only an imported payment nearby
+    { id: 'd', date: '2026-09-05', amount: -20 },   // amount doesn't match
+    { id: 'e', date: '2026-08-01', amount: -20 },   // nothing nearby
+  ];
+  const decisions = new Map(txns.map(t => [t.id, 'w']));
+  const links = B.planLinks(txns, decisions, new Map([['w', e]]));
+  assert.deepEqual([...links].map(([t, p]) => [t, p.id]), [['b', 'p1']]); // 1 day beats 2 days
+  assert.equal(B.planLinks(txns, new Map([['a', 'w']]), new Map([['w', e]])).get('a').id, 'p1');
+  assert.equal(B.planLinks(txns, new Map([['a', 'ignore']]), new Map([['w', e]])).size, 0);
+  // within 1%: typed 105 for a 105.04 bill
+  const f = { ...e, payments: [{ id: 'q', date: '2026-11-09', amount: 105 }] };
+  assert.equal(B.planLinks([{ id: 'z', date: '2026-11-09', amount: -105.04 }], new Map([['z', 'w']]), new Map([['w', f]])).size, 1);
+  assert.equal(B.planLinks([{ id: 'z', date: '2026-11-15', amount: -105.04 }], new Map([['z', 'w']]), new Map([['w', f]])).size, 0);
+});
+
 // ---------- Offline cache ----------
 
 test('every app file is in the service worker cache list', () => {

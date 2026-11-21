@@ -59,7 +59,7 @@ test('credit card statement: matches, recurring, ignore payee, import, no duplic
 test('savings statement: income and transfers matched; payments land on the right due dates', async ({ page }) => {
   await openWithSample(page);
   await chooseFile(page, 'commbank-savings.csv');
-  await expect(page.locator('#impAccount')).toHaveValue('CommBank account');
+  await expect(page.locator('#impAccount')).toHaveValue('CommBank account');   // no accounts yet: a name box
   await expect(txn(page, 'Salary').locator('select option:checked')).toHaveText('Salary');
   await expect(txn(page, 'Rent November').locator('select option:checked')).toHaveText('Rent');
   await expect(txn(page, 'ORIGIN ENERGY').locator('select option:checked')).toHaveText('Electricity & gas');
@@ -69,6 +69,59 @@ test('savings statement: income and transfers matched; payments land on the righ
   const pay = page.locator('#payments .pay-row').first();
   await expect(pay.locator('[name=paydate]')).toHaveValue('2026-11-01');
   await expect(pay.locator('[name=payamount]')).toHaveValue('1010.00');
+});
+
+test('a payment already logged by hand is updated with the bank date, not added again', async ({ page }) => {
+  await openWithSample(page);
+  // The sample water bill has a hand-logged $88.40 on 10 Aug; move it to 12 Aug, as if marked paid late.
+  await editEntry(page, 'Water');
+  const pays = page.locator('#payments .pay-row');
+  const before = await pays.count();
+  const aug = pays.filter({ has: page.locator('[name=payamount][value="88.40"]') });
+  await aug.locator('[name=paydate]').fill('2026-08-12');
+  await page.locator('.sheet-head [type=submit]').click();
+  await expect(page.locator('#sheet[open]')).toHaveCount(0);
+
+  await chooseFile(page, 'commbank-savings.csv');
+  const water = txn(page, 'SYDNEY WATER');
+  await water.locator('select').selectOption({ label: 'Water' });
+  await expect(water).toContainText('already logged 12 Aug');
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText("updated 1 you'd logged");
+
+  await editEntry(page, 'Water');
+  await expect(pays).toHaveCount(before);                                   // no second copy
+  await expect(pays.filter({ has: page.locator('[name=paydate][value="2026-08-10"]') })).toHaveCount(1); // bank's date
+});
+
+test('accounts: pick from previous ones, rename without losing duplicate detection', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-credit-card.csv');
+  await expect(page.locator('#impAccountPick')).toHaveCount(0);            // first import: just a name box
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+
+  // Rename it in Settings
+  await tab(page, 'settings');
+  page.answers.push('Everyday card');
+  await page.getByRole('button', { name: 'Rename CommBank credit card' }).click();
+  await expect(page.locator('#toast')).toContainText('Account renamed');
+  await expect(page.locator('#view')).toContainText('Everyday card');
+
+  // Next import picks the renamed account, and still knows what was imported
+  await chooseFile(page, 'commbank-credit-card.csv');
+  await expect(page.locator('#impAccountPick option:checked')).toHaveText('Everyday card');
+  await expect(imp(page)).toContainText('already imported or ignored — skipped');
+  await expect(txn(page, 'NETFLIX.COM')).toHaveCount(0);
+
+  // "New account…" offers a name box; typing an existing name goes back to that account
+  await page.locator('#impAccountPick').selectOption({ label: 'New account…' });
+  await expect(page.locator('#impAccount')).toBeVisible();
+  await expect(txn(page, 'NETFLIX.COM')).not.toHaveCount(0);               // a different account: nothing known yet
+  await page.locator('#impAccount').fill('everyday card');
+  await page.locator('#impAccount').blur();
+  await expect(page.locator('#impAccountPick option:checked')).toHaveText('Everyday card');
+  await expect(txn(page, 'NETFLIX.COM')).toHaveCount(0);
 });
 
 test('ambiguous dates: the user can switch the order and sees a preview', async ({ page }) => {

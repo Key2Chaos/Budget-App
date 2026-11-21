@@ -168,6 +168,13 @@ function normalizeSettings(raw) {
     const names = [...new Set(raw.bankAccounts.map(cleanLabel).filter(Boolean))];
     if (names.length) out.bankAccounts = names;
   }
+  // Display names for import accounts (added Nov 2026, optional). Keys are the original account
+  // name in lowercase, which stays in transaction ids, so renaming never breaks duplicate detection.
+  if (raw?.accountNames && typeof raw.accountNames === 'object') {
+    const names = Object.fromEntries(Object.entries(raw.accountNames)
+      .map(([k, v]) => [String(k).toLowerCase(), cleanLabel(v)]).filter(([k, v]) => k && v));
+    if (Object.keys(names).length) out.accountNames = names;
+  }
   return out;
 }
 
