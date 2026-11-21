@@ -33,7 +33,7 @@ test('credit card statement: matches, recurring, ignore payee, import, no duplic
   const recurring = imp(page).locator('.label-row', { hasText: 'Disney Plus' });
   await expect(recurring).toContainText('3 × $13.99 · monthly');
   await recurring.locator('[data-new]').click();
-  await expect(txn(page, 'DISNEY PLUS').first().locator('select option:checked')).toHaveText('New: Disney Plus');
+  await expect(txn(page, 'DISNEY PLUS').first().locator('select option:checked')).toHaveText('+ New entry: Disney Plus (monthly)');
 
   // Always ignore a payee
   await txn(page, 'WOOLWORTHS').locator('select').selectOption('ignore-payee');
@@ -216,6 +216,29 @@ test('undo bank imports also deletes the entries imports added, so they stop mat
   await expect(txn(page, 'DISNEY PLUS').first()).not.toContainText('remembered');
   await expect(txn(page, 'WOOLWORTHS')).toHaveCount(1);
   await expect(txn(page, 'GOOGLE').first().locator('select option:checked')).toHaveText('Google One'); // kept entry, matched by name
+});
+
+test('with no entries yet, any transaction can start a new entry', async ({ page }) => {
+  await page.goto('/');
+  await chooseFile(page, 'commbank-credit-card-padded.csv');
+  const grocer = txn(page, 'GROCER 0412');
+  await expect(grocer.locator('option[disabled]').first()).toHaveText('No entries yet');
+  // Two purchases from the same shop: picking one takes the other too, as a "no set schedule" entry
+  await grocer.locator('select').selectOption({ label: '+ New entry: Grocer' });
+  await expect(txn(page, 'GROCER 0398').locator('select option:checked')).toHaveText('+ New entry: Grocer');
+  // A one-off
+  await txn(page, 'CAFE EXAMPLE').locator('select').selectOption({ label: '+ New entry: Cafe Example' });
+  // A recurring payee offers its schedule
+  await txn(page, 'STREAMCO').first().locator('select').selectOption({ label: '+ New entry: Streamco (monthly)' });
+  await expect(imp(page).locator('.label-row', { hasText: 'Streamco' })).toContainText('Adding');
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('added 3 entries');
+
+  await tab(page, 'entries');
+  await expect(row(page, 'Grocer')).toContainText('Variable');
+  await expect(row(page, 'Grocer')).toContainText('Last $82.10');
+  await expect(row(page, 'Streamco')).toContainText('Monthly');
+  await expect(row(page, 'Cafe Example')).toContainText('$4.50');
 });
 
 test('ambiguous dates: the user can switch the order and sees a preview', async ({ page }) => {

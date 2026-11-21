@@ -1203,12 +1203,17 @@ function openImport() {
     const d = imp.decision.get(t.id) || '';
     const g = groupOf.get(t.id);
     const opt = (v, label) => `<option value="${esc(v)}" ${d === v ? 'selected' : ''}>${esc(label)}</option>`;
-    const list = type => entriesBy(type).map(e => opt(e.id, e.name)).join('');
+    const list = type => entriesBy(type).map(e => opt(e.id, e.name)).join('')
+      || '<option disabled>No entries yet</option>';
+    // A new entry for this payee: the recurring one spotted, else one with no set schedule (or a
+    // one-off if it's the only transaction from them)
+    const make = g ? opt(`new:${g.key}`, `+ New entry: ${g.name} (${C.FREQ[g.frequency].label.toLowerCase()})`)
+      : opt(`make:${t.payee}`, `+ New entry: ${t.name || Bank.payeeName(t.payee)}`);
     return `<select data-txn="${t.id}" aria-label="What is this?">
       ${opt('', 'Skip for now')}
       ${opt('ignore', 'Ignore this one')}
       ${opt('ignore-payee', 'Always ignore this payee')}
-      ${g && imp.newGroups.has(g.key) ? opt(`new:${g.key}`, `New: ${g.name}`) : ''}
+      ${make}
       <optgroup label="${t.amount < 0 ? 'Expenses' : 'Income'}">${list(t.amount < 0 ? 'expense' : 'income')}</optgroup>
       <optgroup label="${t.amount < 0 ? 'Income (as a refund)' : 'Expenses (as a refund)'}">${list(t.amount < 0 ? 'income' : 'expense')}</optgroup>
     </select>`;
@@ -1288,7 +1293,20 @@ function openImport() {
   const root = $('#import');
   root.addEventListener('change', ev => {
     const s = ev.target.closest('select[data-txn]');
-    if (s) { imp.decision.set(s.dataset.txn, s.value); return openImportKeepScroll(); }
+    if (s) {
+      const v = s.value;
+      imp.decision.set(s.dataset.txn, v);
+      // A new entry takes this payee's other undecided transactions too
+      if (v.startsWith('new:')) {
+        const g = imp.recurring.find(x => x.key === v.slice(4));
+        imp.newGroups.add(g.key);
+        g.txns.forEach(x => { if (!imp.decision.get(x.id)) imp.decision.set(x.id, v); });
+      }
+      if (v.startsWith('make:')) {
+        imp.txns.forEach(x => { if (x.payee === v.slice(5) && !imp.decision.get(x.id)) imp.decision.set(x.id, v); });
+      }
+      return openImportKeepScroll();
+    }
     if (ev.target.id === 'impAccountPick') {
       const k = ev.target.value;
       imp.newAccount = !k;
@@ -1369,6 +1387,26 @@ async function applyImport() {
     rules[g.payee] = id;
   }
 
+  // New entries for single payees ("+ New entry" on a transaction)
+  const made = new Map(); // payee → new entry id
+  for (const payee of new Set([...imp.decision.values()].filter(d => d.startsWith('make:')).map(d => d.slice(5)))) {
+    const txns = imp.txns.filter(t => imp.decision.get(t.id) === `make:${payee}`).sort((a, b) => a.date.localeCompare(b.date));
+    if (!txns.length) continue;
+    const id = uid();
+    const one = txns.length === 1;
+    const frequency = one ? 'once' : 'irregular';
+    const start = txns[0].date;
+    changed.set(id, {
+      id, type: txns[0].amount < 0 ? 'expense' : 'income', name: txns[0].name || Bank.payeeName(payee), category: '',
+      method: accountName(imp.account), frequency, startDate: start, contractEnd: null, endsAtExpiry: false, endDate: null,
+      notes: `Added from a bank import (${payee})`, tags: [], fromImport: true,
+      prices: [{ from: start, amount: one ? Math.abs(txns[0].amount) : null, frequency }],
+      variable: !one, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
+    });
+    made.set(payee, id);
+    if (!one) rules[payee] = id; // later purchases from them go to it too (not to a one-off)
+  }
+
   for (const t of imp.txns) {
     let d = imp.decision.get(t.id) || '';
     const suggested = imp.suggested.get(t.id) || '';
@@ -1383,6 +1421,7 @@ async function applyImport() {
       continue;
     }
     if (d.startsWith('new:')) d = imp.recurring.find(g => g.key === d.slice(4))?.newId;
+    else if (d.startsWith('make:')) d = made.get(d.slice(5));
     const e = d && get(d);
     if (!e) continue;
     // Payments are stored as the bill amount: money out on an expense (or in on income) is positive;
@@ -1403,7 +1442,7 @@ async function applyImport() {
     }
     // Remember the payee only for choices you made, name matches and existing rules. A match on
     // amount alone is a one-off guess and mustn't send every future purchase there.
-    if (d !== suggested || t.why === 'rule' || t.byName) rules[t.payee] = e.id;
+    if ((d !== suggested || t.why === 'rule' || t.byName) && e.frequency !== 'once') rules[t.payee] = e.id; // never send later purchases to a one-off
     logged++;
   }
 
@@ -1413,7 +1452,7 @@ async function applyImport() {
   state.settings.ignoredTxns = ignored.slice(-5000);
   state.settings.bankAccounts = uniqueCI([imp.account, ...(state.settings.bankAccounts || [])]);
   await saveSettings();
-  const added = imp.newGroups.size;
+  const added = imp.newGroups.size + made.size;
   imp = null;
   closeSheet();
   await reload();
