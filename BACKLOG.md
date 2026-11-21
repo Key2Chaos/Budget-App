@@ -61,3 +61,4 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-21 | Bank statement import (CommBank CSV + header-row files): matching, remembered payees, no duplicates, recurring detection |
 | 2026-11-21 | Bank import: card payees grouped by merchant, ignoring the town after it (e.g. Superloop "BRISBANE" vs "1800 number" was split in two) |
 | 2026-11-21 | Bank import: hand-logged payments are updated (bank date and amount) instead of duplicated; pick previous accounts; rename accounts safely |
+| 2026-11-21 | Bank import: your own names for payees (used for display and matching); payment notes shown in the payment log |

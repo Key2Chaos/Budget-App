@@ -168,6 +168,12 @@ function normalizeSettings(raw) {
     const names = [...new Set(raw.bankAccounts.map(cleanLabel).filter(Boolean))];
     if (names.length) out.bankAccounts = names;
   }
+  // The user's own names for payees (added Nov 2026, optional): payee key → name.
+  if (raw?.payeeNames && typeof raw.payeeNames === 'object') {
+    const names = Object.fromEntries(Object.entries(raw.payeeNames)
+      .map(([k, v]) => [k, typeof v === 'string' ? cleanLabel(v) : '']).filter(([k, v]) => k && v));
+    if (Object.keys(names).length) out.payeeNames = names;
+  }
   // Display names for import accounts (added Nov 2026, optional). Keys are the original account
   // name in lowercase, which stays in transaction ids, so renaming never breaks duplicate detection.
   if (raw?.accountNames && typeof raw.accountNames === 'object') {

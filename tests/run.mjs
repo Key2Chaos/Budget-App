@@ -456,6 +456,25 @@ test('import memory (rules, ignored, accounts) survives a backup round trip', ()
   assert.deepEqual(settings.bankAccounts, ['CommBank card']);
 });
 
+test('your own payee names: shown, used for matching and for new entries, kept in backups', () => {
+  const internet = normalizeEntry({ id: 'i', type: 'expense', name: 'Home internet', frequency: 'monthly',
+    startDate: '2026-01-09', prices: [{ from: '2026-01-09', amount: 104 }] });
+  const raw = [
+    { date: '2026-10-09', amount: -105.04, description: '123456 Aus' },
+    { date: '2026-11-09', amount: -105.04, description: '123456 Aus' },
+  ];
+  const txns = B.withIds(raw, 'Card');
+  assert.equal(B.suggest(txns, [internet])[1].action, '', 'the bank text alone matches nothing');
+  const names = { [txns[0].payee]: 'Home internet' };
+  const named = B.suggest(txns, [internet], {}, names);
+  assert.equal(named[1].name, 'Home internet');
+  assert.equal(named[1].action, 'i', 'your name matches the entry');
+  assert.equal(B.findRecurring(B.suggest(txns, [], {}, names))[0].name, 'Home internet');
+  const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
+    settings: { payeeNames: { '123456 AUS': '  Home   internet ', bad: 5, empty: ' ' } } });
+  assert.deepEqual(settings.payeeNames, { '123456 AUS': 'Home internet' });
+});
+
 test('renamed import accounts survive a backup round trip', () => {
   const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
     settings: { bankAccounts: ['CommBank credit card'], accountNames: { 'CommBank Credit Card': ' Everyday  card ', x: '' } } });

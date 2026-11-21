@@ -124,6 +124,30 @@ test('accounts: pick from previous ones, rename without losing duplicate detecti
   await expect(txn(page, 'NETFLIX.COM')).toHaveCount(0);
 });
 
+test('name a payee: shown on this and future imports, choices kept, used in payment notes', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-credit-card.csv');
+  await txn(page, 'WOOLWORTHS').locator('select').selectOption('ignore-payee');   // a choice made before renaming
+
+  page.answers.push('School uniforms');
+  await txn(page, 'KMART').getByRole('button', { name: /^Rename|^Name|KMART/ }).click();
+  await expect(txn(page, 'KMART').locator('.imp-name')).toHaveText('School uniforms');
+  await expect(txn(page, 'KMART')).toContainText('KMART');                          // the bank's text stays visible
+  await expect(txn(page, 'WOOLWORTHS').locator('select option:checked')).toHaveText('Always ignore this payee');
+  await txn(page, 'KMART').screenshot({ path: test.info().outputPath('named-payee.png') });
+
+  await txn(page, 'KMART').locator('select').selectOption({ label: 'Groceries' });
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+  await editEntry(page, 'Groceries');
+  await expect(page.locator('#payments')).toContainText('School uniforms');
+
+  // Settings remembers it, and the next import shows the name straight away
+  await page.locator('#sheet .sheet-head [data-close]').click();
+  await tab(page, 'settings');
+  await expect(page.locator('#view')).toContainText('1 payees with your own names');
+});
+
 test('ambiguous dates: the user can switch the order and sees a preview', async ({ page }) => {
   await page.goto('/');
   await chooseFile(page, 'ambiguous-dates.csv');

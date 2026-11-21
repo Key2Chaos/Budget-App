@@ -61,6 +61,9 @@ No backend, no account. All data lives on the device in IndexedDB.
   - **Payments you logged yourself** (typed in, or *Mark paid*) aren't doubled up. A bank transaction
     within 4 days and 1% of one updates it to the bank's actual date and amount, shown as
     "already logged" on the review screen.
+  - **Your own payee names:** tap **Name** next to a transaction (e.g. "123456 Aus" → "Home
+    internet"). That payee shows your name on every future import, the name is used for matching, and
+    it's saved in each payment's note. Clear the name to go back to the bank's text.
   - **Renaming an account** (Settings → Bank statements → Rename) is safe: transactions are still
     recognised, and entries using the old name as their payment method are updated.
   - **Recurring payments you haven't added**, e.g. "Disney Plus, 3 × $13.99 monthly", can be added as

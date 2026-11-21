@@ -621,7 +621,9 @@ async function renderSettings() {
       </div>`).join('')}
     </section>
     <p class="fine pad-x">Download a CSV from your bank's website or app first. The file is read on this device only.
-      ${Object.keys(state.settings.payeeRules || {}).length ? `${Object.keys(state.settings.payeeRules).length} remembered payee choices.` : ''}</p>
+      ${Object.keys(state.settings.payeeRules || {}).length ? `${Object.keys(state.settings.payeeRules).length} remembered payee choices.` : ''}
+      ${Object.keys(state.settings.payeeNames || {}).length ? `${Object.keys(state.settings.payeeNames).length} payees with your own names.` : ''}
+      To name a payee, tap <strong>Name</strong> next to one of its transactions when importing.</p>
 
     <div class="group-title">Storage</div>
     <section class="card list">
@@ -672,6 +674,7 @@ function payRow(p) {
     <input type="hidden" name="paydue" value="${esc(p.due || '')}">
     <input type="hidden" name="payid" value="${esc(p.id || '')}">
     <button type="button" class="icon-btn small" data-remove-payment aria-label="Remove payment">−</button>
+    ${p.note ? `<div class="pay-note">${esc(p.note)}</div>` : ''}
   </div>`;
 }
 
@@ -986,6 +989,22 @@ const findAccount = name => {
   return accountKeys().find(k => k.toLowerCase() === n || accountName(k).toLowerCase() === n);
 };
 
+/** Give a payee your own name, used on the import screen, for matching and in payment notes. */
+async function renamePayee(key) {
+  const names = { ...(state.settings.payeeNames || {}) };
+  const sample = imp?.txns.find(t => t.payee === key);
+  const current = names[key] || (sample?.oldPayee && names[sample.oldPayee]) || '';
+  const input = prompt(`Your name for “${sample?.description || key}”. It's used for this payee from now on. Leave blank to use the bank's text.`,
+    current || Bank.payeeName(key));
+  if (input == null) return;
+  const name = cleanLabel(input);
+  if (sample?.oldPayee) delete names[sample.oldPayee];
+  if (name) names[key] = name; else delete names[key];
+  state.settings.payeeNames = names;
+  await saveSettings();
+  toast(name ? `Named “${name}”` : 'Name removed');
+}
+
 async function renameAccount(key) {
   const from = accountName(key);
   const input = prompt(`Rename the account “${from}” to:`, from);
@@ -1045,12 +1064,18 @@ function buildImport() {
   const fresh = all.filter(t => !known.has(t.id));
   imp.total = all.length;
   imp.already = all.length - fresh.length;
-  imp.txns = Bank.suggest(fresh, state.entries.filter(e => !C.isEnded(e, C.addDaysISO(C.todayISO(), -90))), state.settings.payeeRules || {})
+  imp.txns = Bank.suggest(fresh, state.entries.filter(e => !C.isEnded(e, C.addDaysISO(C.todayISO(), -90))),
+    state.settings.payeeRules || {}, state.settings.payeeNames || {})
     .sort((a, b) => b.date.localeCompare(a.date));
-  imp.decision = new Map(imp.txns.map(t => [t.id, t.action]));
+  // Keep choices the user made by hand when this is a redraw (e.g. after renaming a payee).
+  const prev = imp.decision, prevSuggested = imp.suggested;
+  imp.suggested = new Map(imp.txns.map(t => [t.id, t.action]));
+  imp.decision = new Map(imp.txns.map(t => [t.id,
+    prev?.has(t.id) && prev.get(t.id) !== prevSuggested.get(t.id) ? prev.get(t.id) : t.action]));
   imp.links = new Map();
   imp.recurring = Bank.findRecurring(imp.txns.filter(t => !t.action));
   imp.newGroups = new Set([...imp.newGroups].filter(k => imp.recurring.some(g => g.key === k)));
+  for (const [id, d] of imp.decision) if (d.startsWith('new:') && !imp.newGroups.has(d.slice(4))) imp.decision.set(id, '');
   imp.range = all.length ? [all.reduce((m, t) => (t.date < m ? t.date : m), all[0].date), all.reduce((m, t) => (t.date > m ? t.date : m), all[0].date)] : null;
 }
 
@@ -1086,10 +1111,11 @@ function openImport() {
     return `<div class="imp-row ${d && !d.startsWith('ignore') ? 'chosen' : ''} ${d.startsWith('ignore') ? 'ignored' : ''}">
       <div class="imp-top">
         <span class="imp-date">${esc(fmtDate(t.date))}</span>
-        <span class="imp-desc">${esc(t.description)}</span>
+        <span class="imp-desc">${t.name ? `<span class="imp-name">${esc(t.name)}</span><span class="imp-raw">${esc(t.description)}</span>` : esc(t.description)}</span>
         <span class="imp-amt ${t.amount < 0 ? 'neg' : 'pos'}">${t.amount < 0 ? '−' : '+'}${money(Math.abs(t.amount))}</span>
       </div>
-      <div class="imp-bottom">${tag}${select(t)}</div>
+      <div class="imp-bottom"><button type="button" class="link imp-rename" data-rename-payee="${esc(t.payee)}"
+        aria-label="Rename ${esc(t.name || t.description)}">${t.name ? 'Rename' : 'Name'}</button>${tag}${select(t)}</div>
     </div>`;
   };
   const suggested = imp.txns.filter(t => t.action);
@@ -1183,6 +1209,12 @@ function openImport() {
       }
       return openImportKeepScroll();
     }
+    const rn = t.closest('[data-rename-payee]');
+    if (rn) {
+      await renamePayee(rn.dataset.renamePayee);
+      buildImport();
+      return openImportKeepScroll();
+    }
     if (t.closest('[data-ignore-rest]')) {
       imp.txns.forEach(x => { if (!imp.decision.get(x.id)) imp.decision.set(x.id, 'ignore'); });
       return openImportKeepScroll();
@@ -1240,15 +1272,16 @@ async function applyImport() {
     // the other direction is a refund/credit (negative).
     const amount = e.type === 'expense' ? -t.amount : t.amount;
     const link = links.get(t.id);
+    const note = (t.name ? `${t.name} · ${t.description}` : t.description).slice(0, 100);
     if (link) {
       // Already logged by hand: keep that payment, but take the bank's actual date and amount.
       const payments = e.payments.map(p => (p.id === link.id
-        ? { ...p, date: t.date, amount, due: p.due || Bank.nearestDue(e, t.date), note: p.note || t.description.slice(0, 100), source: t.id }
+        ? { ...p, date: t.date, amount, due: p.due || Bank.nearestDue(e, t.date), note: p.note || note, source: t.id }
         : p));
       changed.set(e.id, { ...e, payments, updatedAt: now });
       linked++;
     } else {
-      const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note: t.description.slice(0, 100), source: t.id };
+      const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note, source: t.id };
       changed.set(e.id, { ...e, payments: [...(e.payments || []), payment], updatedAt: now });
     }
     if (!d.startsWith('new:')) rules[t.payee] = e.id;
@@ -1686,7 +1719,7 @@ const actions = {
     if (!confirm('Are you sure? This cannot be undone.')) return;
     await db.clearEntries();
     Object.assign(state.settings, { lastBackup: null, budgets: [], balance: null, paydayId: null,
-      payeeRules: {}, ignoredTxns: [], bankAccounts: [], accountNames: {} });
+      payeeRules: {}, ignoredTxns: [], bankAccounts: [], accountNames: {}, payeeNames: {} });
     await saveSettings();
     await reload();
     toast('All data erased');

@@ -219,7 +219,8 @@ export function matchScore(txn, e) {
   if ((e.type === 'expense') !== out) return 0;
   // Whole words only ("car" must not match "Card xx1234"); longer names may match the start of a
   // word ("electric" → "electricity").
-  const words = txn.description.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  // A name the user gave this payee counts as well as the bank's own text.
+  const words = `${txn.name || ''} ${txn.description}`.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   const tokens = nameTokens(e.name);
   const hits = tokens.filter(t => words.some(w => w === t || (t.length >= 5 && w.startsWith(t)))).length;
   let score = hits ? (hits === tokens.length ? 4 : 3) : 0;
@@ -245,10 +246,13 @@ export function matchScore(txn, e) {
 /**
  * Suggest an action for each transaction: a remembered rule, else the best-scoring entry (≥ 4).
  * rules: { [payeeKey]: entryId | 'ignore' }
+ * names: { [payeeKey]: the user's own name for that payee } — added to each transaction as `name`.
  */
-export function suggest(txns, entries, rules = {}) {
+export function suggest(txns, entries, rules = {}, names = {}) {
   const byId = new Map(entries.map(e => [e.id, e]));
-  return txns.map(t => {
+  return txns.map(t0 => {
+    const name = names[t0.payee] ?? names[t0.oldPayee] ?? null;
+    const t = name ? { ...t0, name } : t0;
     const rule = rules[t.payee] ?? rules[t.oldPayee];
     if (rule === 'ignore') return { ...t, action: 'ignore', why: 'rule' };
     if (rule && byId.has(rule)) return { ...t, action: rule, why: 'rule' };
@@ -328,7 +332,7 @@ export function findRecurring(txns) {
     const amounts = ts.map(t => Math.abs(t.amount));
     const min = Math.min(...amounts), max = Math.max(...amounts);
     out.push({
-      key: k, payee: ts[0].payee, name: payeeName(ts[0].payee), txns: ts, frequency: band[0],
+      key: k, payee: ts[0].payee, name: ts.find(t => t.name)?.name || payeeName(ts[0].payee), txns: ts, frequency: band[0],
       amount: amounts.at(-1), variable: max / min > 1.05, type: k.startsWith('out') ? 'expense' : 'income',
     });
   }
