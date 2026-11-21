@@ -53,8 +53,14 @@ No backend, no account. All data lives on the device in IndexedDB.
     plus most files with a header row (Date / Amount or Debit & Credit / Description).
   - **Dates:** day/month order is detected from the file. If the file could be read either way, you
     choose, with a preview.
-  - **Matching:** each transaction is matched to an entry by name (whole words), or by the exact
-    amount within 3 days of a due date, then logged as a payment.
+  - **Matching** checks three things separately: the **name** (all or some of the entry's words), the
+    **amount** (exact, or within 10%; 50% for bills that vary) and the **date** (within 3 days of a
+    due date, or within about a week). A match needs them to agree:
+    - the full name, plus the amount or the date;
+    - part of the name, plus both the amount and the date;
+    - no name, but the exact amount within 3 days of a due date.
+
+    The review screen shows which ones matched, e.g. "name · amount · date".
   - **Remembered payees:** choices you make yourself, and name matches, are remembered for next time,
     e.g. "ORIGIN ENERGY" → *Electricity & gas*, or "always ignore this payee". Amount-only matches
     aren't remembered, so one coincidence can't send every later purchase from that shop to a bill.

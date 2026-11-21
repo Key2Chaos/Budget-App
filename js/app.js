@@ -1146,7 +1146,8 @@ function openImport() {
     const d = imp.decision.get(t.id) || '';
     const link = imp.links.get(t.id);
     const tag = (link ? `<span class="pill">already logged${link.date !== t.date ? ` ${esc(fmtDate(link.date))}` : ''}</span>` : '')
-      + (t.why === 'rule' ? '<span class="pill">remembered</span>' : t.why === 'match' && d === t.action ? '<span class="pill soon">matched</span>' : '');
+      + (t.why === 'rule' ? '<span class="pill">remembered</span>' : t.why === 'match' && d === t.action
+        ? `<span class="pill ${t.on.length === 3 ? 'good' : 'soon'}" title="Matched on ${t.on.join(', ')}">${t.on.join(' · ')}</span>` : '');
     return `<div class="imp-row ${d && !d.startsWith('ignore') ? 'chosen' : ''} ${d.startsWith('ignore') ? 'ignored' : ''}">
       <div class="imp-top">
         <span class="imp-date">${esc(fmtDate(t.date))}</span>

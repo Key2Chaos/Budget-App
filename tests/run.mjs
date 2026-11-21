@@ -382,6 +382,7 @@ test('payee keys ignore card numbers, dates, places', () => {
   assert.equal(B.payeeKey('NETFLIX.COM MELBOURNE AU AUS Card xx1234 Value Date: 02/11/2026'), 'NETFLIX COM MELBOURNE');
   assert.equal(B.payeeKey('Direct Debit 445566 ORIGIN ENERGY'), 'ORIGIN ENERGY');
   assert.equal(B.payeeName('DISNEY PLUS SYDNEY'), 'Disney Plus');
+  assert.equal(B.payeeName('GOOGLE GOOGLE ONE'), 'Google One');
 });
 
 test('transaction ids are stable across overlapping statements, and distinguish identical rows', () => {
@@ -467,9 +468,29 @@ test('card purchases near a bill\'s price are not matched to it on amount alone'
   const exact = best(t('2026-11-14', -15, 'BPAY 98765'));
   assert.equal(exact.action, 'm', 'exact amount, a day after the due date');
   assert.equal(exact.byName, false);
-  const named = best(t('2026-11-20', -15, 'WOOLWORTHS MOBILE SYDNEY'));
-  assert.equal(named.action, 'm');
-  assert.equal(named.byName, true);
+  assert.deepEqual(exact.on, ['amount', 'date']);
+  // Part of the name needs both the amount and the date
+  const partly = best(t('2026-11-20', -15, 'WOOLWORTHS MOBILE SYDNEY'));
+  assert.equal(partly.action, 'm');
+  assert.deepEqual(partly.on, ['name', 'amount', 'date']);
+  assert.equal(partly.byName, false, 'part of the name is not remembered on its own');
+  assert.equal(best(t('2026-11-13', -82.10, 'WOOLWORTHS 1143 MT DRUITT')).action, '', 'a grocery shop on the due date');
+  assert.equal(best(t('2026-11-25', -15.60, 'WOOLWORTHS MOBILE SYDNEY')).action, '', 'partial name, close amount, 12 days out');
+  // The full name needs the amount or the date
+  const full = best(t('2026-12-30', -19, 'WOOLWORTHS MOBILE BLAKE'));
+  assert.equal(full.action, '', 'full name but $19 vs $15 and 17 days out');
+  const full2 = best(t('2026-11-13', -19, 'WOOLWORTHS MOBILE BLAKE'));
+  assert.equal(full2.action, 'm', 'full name on the due date, even after a price rise');
+  assert.equal(full2.byName, true);
+});
+
+test('match detail: each signal graded separately', () => {
+  const water = normalizeEntry({ id: 'w', type: 'expense', name: 'Water', frequency: 'quarterly', variable: true,
+    startDate: '2026-02-10', prices: [{ from: '2026-02-10', amount: 100 }] });
+  const d = B.matchDetail({ date: '2026-11-16', amount: -112, description: 'SYDNEY WATER' }, water);
+  assert.deepEqual([d.name, d.amount, d.date, d.ok], ['full', 'close', 'near', true]); // varying bill: 12% is close; 6 days out
+  assert.equal(B.matchDetail({ date: '2026-11-16', amount: 112, description: 'SYDNEY WATER' }, water).ok, false, 'money in vs an expense');
+  assert.equal(B.matchDetail({ date: '2025-11-10', amount: -100, description: 'SYDNEY WATER' }, water).ok, false, 'before the entry started');
 });
 
 test('your own payee names: shown, used for matching and for new entries, kept in backups', () => {

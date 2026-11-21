@@ -131,6 +131,7 @@ button.row:active { background: var(--fill); }
 .row select { border: 0; background: none; color: var(--muted); font-size: 16px; text-align: right; }
 
 .pill { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 99px; background: var(--fill); color: var(--muted); white-space: nowrap; }
+.pill.good { background: color-mix(in srgb, var(--pos) 16%, transparent); color: var(--pos); }
 .pill.soon { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
 .pill.warn { background: color-mix(in srgb, var(--neg) 16%, transparent); color: var(--neg); }
 
@@ -390,9 +391,10 @@ form.is-variable #prices .icon-btn { order: 4; flex: none; }
 .imp-raw { color: var(--muted); font-size: 12px; }
 .imp-rename { font-size: 14px; margin-right: auto; padding: 4px 0; }
 .imp-amt { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.imp-bottom { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.imp-bottom { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
+.imp-bottom .pill { flex-shrink: 0; }
 .imp-bottom select {
-  max-width: 70%; border: 0; border-radius: 8px; color: var(--text); font-size: 15px;
+  flex: 1 1 11em; min-width: 0; max-width: 100%; border: 0; border-radius: 8px; color: var(--text); font-size: 15px;
   -webkit-appearance: none; appearance: none; padding: 6px 28px 6px 10px;
   background: var(--fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center / 11px 8px;
 }

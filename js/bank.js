@@ -168,7 +168,7 @@ export function payeeKey(description) {
 
 /** "NETFLIX COM MELBOURNE" → "Netflix" (a readable name for a new entry). */
 export function payeeName(key) {
-  const w = key.split(' ').filter(x => !['COM', 'NET', 'ORG', 'WWW'].includes(x));
+  const w = [...new Set(key.split(' ').filter(x => !['COM', 'NET', 'ORG', 'WWW'].includes(x)))]; // "GOOGLE GOOGLE" → "Google"
   return (w.slice(0, 2).join(' ') || key).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
@@ -219,39 +219,69 @@ export function nameHits(txn, e) {
   return { hits: tokens.filter(t => words.some(w => w === t || (t.length >= 5 && w.startsWith(t)))).length, of: tokens.length };
 }
 
-/** How close (in days) a due date must be for an amount-only match. */
+/** Within this many days of a due date counts as "on the due date". */
 export const DUE_DAYS = 3;
 
 /**
- * How well a transaction fits an entry. Needs a name match, or the exact amount (to the cent)
- * within DUE_DAYS of a due date, before it counts as a suggestion (score ≥ 4). A card statement
- * has hundreds of purchases, so "about the same amount, sometime this month" is not enough.
+ * How a transaction fits an entry on three separate signals, each strong, partial or missing:
+ *   name   — 'full' (every word of the entry's name) | 'partial' (some words) | null
+ *   amount — 'exact' (to the cent; for varying bills, within 10%) | 'close' (within 10%; 50% if it varies) | null
+ *   date   — 'due' (within DUE_DAYS of a due date) | 'near' (within a week, longer for long periods) | null
+ * It's a match (`ok`) only when the signals agree:
+ *   - the full name, plus the amount or the date;
+ *   - part of the name, plus both the amount and the date;
+ *   - no name, but the exact amount on the due date (e.g. a direct debit with a cryptic name).
+ * A card statement has hundreds of purchases, so one signal on its own is never enough: a
+ * Woolworths grocery shop shares a word with "Woolworths Mobile", and $14.95 is close to $15.
+ * `score` ranks matches against each other.
  */
-export function matchScore(txn, e) {
-  const out = txn.amount < 0;
-  if ((e.type === 'expense') !== out) return 0;
-  const { hits, of } = nameHits(txn, e);
-  let score = hits ? (hits === of ? 4 : 3) : 0;
+export function matchDetail(txn, e) {
+  const none = { ok: false, score: 0, name: null, amount: null, date: null };
+  if ((e.type === 'expense') !== (txn.amount < 0)) return none;
+  // Not while the entry wasn't running
+  if (txn.date < C.addDaysISO(e.startDate, -14)) return none;
+  const stop = C.stopDate(e);
+  if (stop && txn.date > C.addDaysISO(stop, 14)) return none;
 
-  const a = Math.abs(txn.amount);
+  const { hits, of } = nameHits(txn, e);
+  const name = hits ? (hits === of ? 'full' : 'partial') : null;
+
+  let amount = null;
   const est = C.estimateOn(e, txn.date);
-  let toTheCent = false;
   if (est > 0) {
+    const a = Math.abs(txn.amount);
     const costs = [est, est * C.shareOf(e)];
     const diff = Math.min(...costs.map(c => Math.abs(a - c) / Math.max(c, 1)));
-    toTheCent = !e.variable && costs.some(c => Math.abs(a - c) < 0.005);
-    if (e.variable) score += diff <= 0.5 ? 1.5 : 0;
-    else score += diff <= 0.01 ? 3 : diff <= 0.1 ? 1 : 0;
+    if (e.variable) amount = diff <= 0.1 ? 'exact' : diff <= 0.5 ? 'close' : null;
+    else amount = costs.some(c => Math.abs(a - c) < 0.005) ? 'exact' : diff <= 0.1 ? 'close' : null;
   }
+
+  let date = null;
   const due = nearestDue(e, txn.date);
-  const dueDays = due ? Math.abs(C.daysBetween(due, txn.date)) : Infinity;
-  score += dueDays <= DUE_DAYS ? 1 : dueDays <= 7 ? 0.5 : 0;
-  if (txn.date < C.addDaysISO(e.startDate, -14)) score -= 3;
-  const stop = C.stopDate(e);
-  if (stop && txn.date > C.addDaysISO(stop, 14)) score -= 3;
-  if (!hits && !(toTheCent && dueDays <= DUE_DAYS)) return Math.min(score, 3.5); // never a suggestion on a loose amount alone
-  return score;
+  if (due) {
+    const f = C.FREQ[C.freqOn(e, txn.date)];
+    const near = Math.max(7, Math.round((f.days || f.months * 30) / 10)); // a week; ~9 days quarterly, ~36 yearly
+    const days = Math.abs(C.daysBetween(due, txn.date));
+    date = days <= DUE_DAYS ? 'due' : days <= near ? 'near' : null;
+  }
+
+  const ok = (name === 'full' && !!(amount || date))
+    || (name === 'partial' && !!amount && !!date)
+    || (!name && amount === 'exact' && date === 'due');
+  const score = (name === 'full' ? 4 : name === 'partial' ? 2 : 0)
+    + (amount === 'exact' ? 3 : amount === 'close' ? 1.5 : 0)
+    + (date === 'due' ? 1.5 : date === 'near' ? 0.5 : 0);
+  return { ok, score, name, amount, date };
 }
+
+/** A single number for how well a transaction fits an entry; 4 or more is a match. */
+export function matchScore(txn, e) {
+  const m = matchDetail(txn, e);
+  return m.ok ? Math.max(4, m.score) : Math.min(m.score, 3.5);
+}
+
+/** Which signals agreed, for the review screen: e.g. ['name', 'amount', 'date']. */
+export const matchedOn = m => [m.name && 'name', m.amount && 'amount', m.date && 'date'].filter(Boolean);
 
 /**
  * Suggest an action for each transaction: a remembered rule, else the best-scoring entry (≥ 4).
@@ -266,13 +296,13 @@ export function suggest(txns, entries, rules = {}, names = {}) {
     const rule = rules[t.payee] ?? rules[t.oldPayee];
     if (rule === 'ignore') return { ...t, action: 'ignore', why: 'rule' };
     if (rule && byId.has(rule)) return { ...t, action: rule, why: 'rule' };
-    let best = null, bestScore = 0;
+    let best = null, bestM = null;
     for (const e of entries) {
-      const s = matchScore(t, e);
-      if (s > bestScore) { best = e; bestScore = s; }
+      const m = matchDetail(t, e);
+      if (m.ok && (!bestM || m.score > bestM.score)) { best = e; bestM = m; }
     }
-    return bestScore >= 4
-      ? { ...t, action: best.id, why: 'match', score: bestScore, byName: nameHits(t, best).hits > 0 }
+    return best
+      ? { ...t, action: best.id, why: 'match', score: bestM.score, on: matchedOn(bestM), byName: bestM.name === 'full' }
       : { ...t, action: '', why: null };
   });
 }
