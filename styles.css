@@ -11,6 +11,7 @@
   --warn: #c77700;
   --future: rgba(88, 86, 214, 0.06);
   --bar-blur: rgba(242, 242, 247, 0.82);
+  --seg-on: #ffffff;
   --tabbar-h: 56px;
   color-scheme: light dark;
 }
@@ -28,6 +29,7 @@
     --warn: #ffb340;
     --future: rgba(125, 122, 255, 0.09);
     --bar-blur: rgba(18, 18, 20, 0.82);
+    --seg-on: #636366;
   }
 }
 
@@ -143,7 +145,7 @@ button.row:active { background: var(--fill); }
   font-size: 14px; font-weight: 500; text-align: center; position: relative;
 }
 .seg button.on, .seg label:has(input:checked) {
-  background: var(--card); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  background: var(--seg-on); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 .seg label input { position: absolute; opacity: 0; pointer-events: none; }
 .seg.small button { padding: 4px 9px; font-size: 13px; }

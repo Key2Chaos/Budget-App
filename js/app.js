@@ -44,7 +44,7 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString
 const fmtCache = new Map();
 function money(n, opts = {}) {
   const key = state.settings.currency + JSON.stringify(opts);
-  if (!fmtCache.has(key)) fmtCache.set(key, new Intl.NumberFormat(undefined, { style: 'currency', currency: state.settings.currency, ...opts }));
+  if (!fmtCache.has(key)) fmtCache.set(key, new Intl.NumberFormat(undefined, { style: 'currency', currency: state.settings.currency, currencyDisplay: 'narrowSymbol', ...opts }));
   return fmtCache.get(key).format(n);
 }
 const compactMoney = n => money(n, { notation: 'compact', maximumFractionDigits: 1 });
@@ -172,7 +172,8 @@ function renderOverview() {
   const change = (label, a, b, goodUp) => {
     const diff = b - a;
     if (Math.abs(diff) < 0.005) return `<li>${label} unchanged since ${monthYear.format(new Date(first.y, first.m, 1))}</li>`;
-    const pct = a > 0 ? ` (${diff > 0 ? '+' : ''}${Math.round((diff / a) * 100)}%)` : '';
+    const p = a > 0 ? (diff / a) * 100 : null;
+    const pct = p === null ? '' : Math.abs(p) < 1 ? ' (<1%)' : ` (${p > 0 ? '+' : ''}${Math.round(p)}%)`;
     const good = goodUp ? diff > 0 : diff < 0;
     return `<li><span class="${good ? 'pos' : 'neg'}">${label} ${diff > 0 ? 'up' : 'down'} ${money(Math.abs(diff))}/mo${pct}</span> since ${monthYear.format(new Date(first.y, first.m, 1))}</li>`;
   };
@@ -220,7 +221,7 @@ function renderOverview() {
       <div class="summary-grid">
         <div><span class="k">Income</span><span class="v pos">${money(cur.income)}</span></div>
         <div><span class="k">Expenses</span><span class="v neg">${money(cur.expense)}</span></div>
-        <div class="net"><span class="k">Left over</span><span class="v ${cur.net >= 0 ? 'pos' : 'neg'}">${money(cur.net)}</span></div>
+        <div class="net"><span class="k">${state.tags.length ? 'Net for these tags' : 'Left over'}</span><span class="v ${cur.net >= 0 ? 'pos' : 'neg'}">${money(cur.net)}</span></div>
       </div>
       <p class="fine">Recurring items are spread evenly per month (e.g. yearly ÷ 12).</p>
     </section>
@@ -655,16 +656,23 @@ async function exportBackup() {
   const name = `budget-backup-${C.todayISO()}.json`;
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const file = new File([blob], name, { type: 'application/json' });
+  const download = () => {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
   try {
     if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], title: name });
+      try {
+        await navigator.share({ files: [file], title: name });
+      } catch (e) {
+        if (e.name === 'AbortError') return; // user closed the share sheet
+        download();                         // share refused (e.g. desktop browser) → plain download
+      }
     } else {
-      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
-      document.body.append(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      download();
     }
   } catch (e) {
-    if (e.name === 'AbortError') return; // user closed the share sheet
     alert('Export failed: ' + e.message);
     return;
   }
