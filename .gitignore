@@ -1,4 +1,43 @@
+# ---------------------------------------------------------------
+# Files git should never pick up. To stop tracking something that
+# was already committed, see "Removing a file from the repo" in README.
+# ---------------------------------------------------------------
+
+# Secrets & credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.cer
+id_rsa*
+id_ed25519*
+secrets/
+credentials*.json
+*secret*.json
+config.local.*
+
+# Personal budget data: exported backups must never be committed
+budget-backup*.json
+*.backup.json
+backups/
+
+# Local scratch space (put anything here you don't want in git)
+local/
+scratch/
+
+# Tool & editor settings that are machine-specific
+.claude/settings.local.json
+.vscode/
+.idea/
+*.code-workspace
+
+# OS / dependency junk
 .DS_Store
 Thumbs.db
+desktop.ini
 node_modules/
 *.log

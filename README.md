@@ -52,6 +52,35 @@ On the iPhone, open the URL in **Safari** → Share → **Add to Home Screen**.
 Bump `VERSION` in `sw.js` each time you deploy. The installed app picks up the new version on its
 next launch or the one after.
 
+## Keeping secrets out of the repo
+
+The repo is public, so nothing private goes in it. Your budget data never does: it lives on the phone.
+
+- **`.gitignore`** lists files git ignores: `.env` files, keys and certificates, credential files,
+  budget backup exports (`budget-backup*.json`) and anything in a `local/` folder. Keep personal
+  files in `local/` and they'll never be committed.
+- **Pre-commit check** (`.githooks/pre-commit`) blocks a commit when a staged file looks like a key,
+  a token or a budget backup. Turn it on once in each clone:
+  ```sh
+  git config core.hooksPath .githooks
+  ```
+- **GitHub secret scanning with push protection** is turned on for the repo as a second safety net.
+
+### Removing a file from the repo
+
+To stop tracking a file but **keep it on your computer**:
+
+```sh
+git rm --cached path/to/file      # add -r for a folder
+echo "path/to/file" >> .gitignore # so it isn't re-added
+git commit -m "Stop tracking path/to/file"
+git push
+```
+
+The file disappears from GitHub's current view but **stays in the history**. If what you removed was
+a real secret (a password or API key), treat it as leaked: revoke or change it at its source. Then
+ask for the history to be rewritten if you also want it gone from old commits.
+
 ## Project layout
 
 | Path | Purpose |

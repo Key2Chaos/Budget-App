@@ -1,0 +1,35 @@
+#!/bin/sh
+# Blocks commits that look like they contain secrets or personal budget data.
+# Enabled per clone with:  git config core.hooksPath .githooks
+# Bypass for a genuine false positive (think twice!):  git commit --no-verify
+
+fail=0
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# 1) Filenames that should never be committed
+for f in $staged; do
+  case "$f" in
+    .env|.env.*|*.pem|*.key|*.p12|*.pfx|*.mobileprovision|*id_rsa*|*id_ed25519*|*credentials*.json|*secret*.json|budget-backup*.json|*/budget-backup*.json|*.backup.json)
+      [ "$f" = ".env.example" ] && continue
+      echo "✋ Blocked file: $f (looks like a secret or a personal budget backup)"
+      fail=1 ;;
+  esac
+done
+
+# 2) Secret-looking content in the staged changes (added lines only)
+patterns='-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|(api[_-]?key|secret|password|passwd|token)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"' ]{8,}["'"'"']'
+hits=$(git diff --cached -U0 --diff-filter=ACM -- . ':(exclude).githooks/*' | grep -E '^\+[^+]' | grep -Ei -- "$patterns")
+if [ -n "$hits" ]; then
+  echo "✋ Possible secret in staged changes:"
+  echo "$hits" | cut -c1-160 | sed 's/^/   /'
+  fail=1
+fi
+
+if [ $fail -ne 0 ]; then
+  echo ""
+  echo "Commit stopped. Unstage with:  git restore --staged <file>"
+  echo "Then add the file to .gitignore if it should never be committed."
+  exit 1
+fi
+exit 0
