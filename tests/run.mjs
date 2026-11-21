@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as C from '../js/calc.js';
 import * as R from '../js/reports.js';
+import * as B from '../js/bank.js';
 import { SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry, normalizeTags, cleanTag } from '../js/schema.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -331,6 +332,108 @@ test('CSV: quoting, formula guard, numbers, BOM', () => {
   assert.ok(csv.includes("'=SUM(A1) should stay text"));
   assert.equal(R.paymentsRows(entries).length, 2);
   assert.equal(R.monthlyRows(entries, 2026, 0, 12).length, 13);
+});
+
+// ---------- Bank statement import ----------
+
+const bankFile = name => readFileSync(join(fixtureDir, 'bank', name), 'utf8');
+
+test('CSV parser: quotes, commas inside quotes, CRLF, BOM, blank lines', () => {
+  assert.deepEqual(B.parseCSV('﻿a,"b, c","d ""e"""\r\n\r\n1,2,3\n'), [['a', 'b, c', 'd "e"'], ['1', '2', '3']]);
+});
+
+test('CommBank credit card file: detected, DD/MM dates, signed amounts', () => {
+  const rows = B.parseCSV(bankFile('commbank-credit-card.csv'));
+  const fmt = B.detectFormat(rows);
+  assert.equal(fmt.bank, 'CommBank');
+  assert.equal(fmt.kind, 'card');
+  assert.equal(B.detectDateOrder(rows.map(r => r[fmt.date])), 'DMY');
+  const txns = B.toTransactions(rows, fmt, 'DMY');
+  assert.equal(txns.length, 14);
+  assert.deepEqual(txns[0], { date: '2026-11-20', amount: 250, description: 'PAYMENT RECEIVED, THANK YOU', balance: null });
+  assert.equal(txns[5].amount, -12.99);
+});
+
+test('CommBank savings file: balance column recognised', () => {
+  const rows = B.parseCSV(bankFile('commbank-savings.csv'));
+  const fmt = B.detectFormat(rows);
+  assert.equal(fmt.kind, 'bank');
+  assert.equal(B.toTransactions(rows, fmt, 'DMY')[0].balance, 3798.4);
+});
+
+test('date order: detected when possible, null when the file can’t tell', () => {
+  assert.equal(B.detectDateOrder(['13/01/2026', '01/02/2026']), 'DMY');
+  assert.equal(B.detectDateOrder(['01/13/2026']), 'MDY');
+  assert.equal(B.detectDateOrder(['2026-01-02']), 'YMD');
+  const rows = B.parseCSV(bankFile('ambiguous-dates.csv'));
+  assert.equal(B.detectDateOrder(rows.map(r => r[0])), null);
+  assert.equal(B.parseDate('03/11/2026', 'DMY'), '2026-11-03');
+  assert.equal(B.parseDate('03/11/2026', 'MDY'), '2026-03-11');
+  assert.equal(B.parseDate('31/02/2026', 'DMY'), null); // not a real date
+});
+
+test('files with a header row: Debit / Credit columns', () => {
+  const rows = B.parseCSV('Date,Description,Debit,Credit,Balance\n2026-11-03,COFFEE,4.50,,100\n2026-11-04,PAY,,500,600\n');
+  const fmt = B.detectFormat(rows);
+  assert.deepEqual(B.toTransactions(rows, fmt, 'YMD').map(t => t.amount), [-4.5, 500]);
+});
+
+test('payee keys ignore card numbers, dates, places', () => {
+  assert.equal(B.payeeKey('NETFLIX.COM MELBOURNE AU AUS Card xx1234 Value Date: 02/11/2026'), 'NETFLIX COM MELBOURNE');
+  assert.equal(B.payeeKey('Direct Debit 445566 ORIGIN ENERGY'), 'ORIGIN ENERGY');
+  assert.equal(B.payeeName('DISNEY PLUS SYDNEY'), 'Disney Plus');
+});
+
+test('transaction ids are stable across overlapping statements, and distinguish identical rows', () => {
+  const t = [{ date: '2026-11-01', amount: -5, description: 'COFFEE' }, { date: '2026-11-01', amount: -5, description: 'COFFEE' }];
+  const a = B.withIds(t, 'CommBank card'), b = B.withIds(t, 'CommBank card');
+  assert.deepEqual(a.map(x => x.id), b.map(x => x.id));
+  assert.notEqual(a[0].id, a[1].id);
+  assert.notEqual(B.withIds(t, 'Other account')[0].id, a[0].id);
+});
+
+test('matching: names, exact amounts on due dates, rules; nothing on amount alone', () => {
+  const entries = migrateBackup(load('v1-2026-11-initial-release.json')).entries; // Netflix 10.99 on the 4th (cancelled Jun 2026), Rent, …
+  const txns = B.withIds(B.toTransactions(B.parseCSV(bankFile('commbank-savings.csv')), B.detectFormat(B.parseCSV(bankFile('commbank-savings.csv'))), 'DMY'), 'Savings');
+  const s = B.suggest(txns, entries);
+  const by = d => s.find(t => t.description.includes(d));
+  assert.equal(entries.find(e => e.id === by('Rent').action).name, 'Rent');
+  assert.equal(entries.find(e => e.id === by('Salary').action).name, 'Salary');
+  assert.equal(by('ORIGIN').action, '');                       // no entry called anything like it
+  // a remembered rule wins
+  const gym = entries.find(e => e.name === 'Gym');
+  const ruled = B.suggest(txns, entries, { 'ORIGIN ENERGY': gym.id, 'NETBANK SAVINGS': 'ignore' });
+  assert.equal(ruled.find(t => t.description.includes('ORIGIN')).action, gym.id);
+  assert.equal(ruled.find(t => t.description.includes('NetBank')).action, 'ignore');
+});
+
+test('names match whole words: "Car insurance" is not matched by "Card xx1234"', () => {
+  const car = normalizeEntry({ id: 'c', type: 'expense', name: 'Car insurance', frequency: 'monthly', startDate: '2026-01-18', prices: [{ from: '2026-01-18', amount: 56 }] });
+  const spotify = { date: '2026-11-07', amount: -11.99, description: 'SPOTIFY P1A2B3C4 SYDNEY AU AUS Card xx1234' };
+  assert.ok(B.matchScore(spotify, car) < 4);
+  const aami = { date: '2026-11-18', amount: -56, description: 'AAMI INSURANCE MELBOURNE AU AUS Card xx1234' };
+  assert.ok(B.matchScore(aami, car) >= 4);
+});
+
+test('recurring payments not yet added are spotted with their frequency', () => {
+  const rows = B.parseCSV(bankFile('commbank-credit-card.csv'));
+  const txns = B.withIds(B.toTransactions(rows, B.detectFormat(rows), 'DMY'), 'Card');
+  const rec = B.findRecurring(txns);
+  const disney = rec.find(r => r.payee === 'DISNEY PLUS SYDNEY');
+  assert.equal(disney.frequency, 'monthly');
+  assert.equal(disney.txns.length, 3);
+  assert.equal(disney.amount, 13.99);
+  assert.equal(disney.variable, false);
+  assert.equal(rec.find(r => r.payee.startsWith('GOOGLE')).frequency, 'monthly');
+  assert.ok(!rec.some(r => r.payee.startsWith('KMART')), 'one-offs are not recurring');
+});
+
+test('import memory (rules, ignored, accounts) survives a backup round trip', () => {
+  const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
+    settings: { payeeRules: { 'ORIGIN ENERGY': 'abc', bad: 5 }, ignoredTxns: ['t1', 't1', 7], bankAccounts: [' CommBank  card '] } });
+  assert.deepEqual(settings.payeeRules, { 'ORIGIN ENERGY': 'abc' });
+  assert.deepEqual(settings.ignoredTxns, ['t1']);
+  assert.deepEqual(settings.bankAccounts, ['CommBank card']);
 });
 
 // ---------- Offline cache ----------

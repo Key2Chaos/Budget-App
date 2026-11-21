@@ -2,6 +2,7 @@ import { db } from './db.js';
 import * as C from './calc.js';
 import { buildChart } from './chart.js';
 import * as R from './reports.js';
+import * as Bank from './bank.js';
 import { APP_ID, SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry, normalizeTags, cleanTag, cleanLabel } from './schema.js';
 
 // ---------- Constants ----------
@@ -606,6 +607,17 @@ async function renderSettings() {
     <p class="fine pad-x">${state.entries.length} entries · Last backup: ${state.settings.lastBackup ? fmtDate(localDay(state.settings.lastBackup)) : 'never'}.
       Your data is stored only on this device. Saving a backup to iCloud Drive lets you restore it on another iPhone, iPad or Mac.</p>
 
+    <div class="group-title">Bank statements</div>
+    <section class="card list">
+      <button class="row" data-action="import-bank">
+        <div class="row-main"><div class="row-title accent">Import bank statement (CSV)</div>
+        <div class="row-sub">Match transactions to your bills and log them as payments. CommBank and most banks.</div></div>
+      </button>
+      <input type="file" id="bankFile" accept=".csv,text/csv,text/comma-separated-values" hidden>
+    </section>
+    <p class="fine pad-x">Download a CSV from your bank's website or app first. The file is read on this device only.
+      ${Object.keys(state.settings.payeeRules || {}).length ? `${Object.keys(state.settings.payeeRules).length} remembered payee choices.` : ''}</p>
+
     <div class="group-title">Storage</div>
     <section class="card list">
       <div class="row static">
@@ -955,6 +967,231 @@ function openBudgets() {
   if (!sheet.open) { document.body.classList.add('modal-open'); sheet.showModal(); }
 }
 
+// ---------- Bank statement import ----------
+let imp = null; // the import being reviewed
+
+async function startBankImport(file) {
+  let text;
+  try { text = await file.text(); } catch { alert('Couldn’t read that file.'); return; }
+  const rows = Bank.parseCSV(text);
+  const fmt = Bank.detectFormat(rows);
+  if (!fmt) {
+    alert('This file wasn’t recognised as a bank statement. It needs a date, an amount and a description in each row (CommBank CSVs work as they are).');
+    return;
+  }
+  const detected = Bank.detectDateOrder(rows.slice(fmt.hasHeader ? 1 : 0).map(r => r[fmt.date]));
+  const order = detected || (REGION === 'US' ? 'MDY' : 'DMY');
+  const accounts = state.settings.bankAccounts || [];
+  const guess = `${fmt.bank} ${fmt.kind === 'card' ? 'credit card' : 'account'}`;
+  imp = {
+    fileName: file.name, rows, fmt, order, orderDetected: !!detected,
+    account: accounts.find(a => a.toLowerCase() === guess.toLowerCase()) || accounts[0] || guess,
+    newGroups: new Set(),
+  };
+  buildImport();
+  openImport();
+}
+
+/** (Re)work out transactions, duplicates, suggestions and recurring groups for the current settings. */
+function buildImport() {
+  const all = Bank.withIds(Bank.toTransactions(imp.rows, imp.fmt, imp.order), imp.account);
+  const known = new Set([
+    ...state.entries.flatMap(e => (e.payments || []).map(p => p.source).filter(Boolean)),
+    ...(state.settings.ignoredTxns || []),
+  ]);
+  const fresh = all.filter(t => !known.has(t.id));
+  imp.total = all.length;
+  imp.already = all.length - fresh.length;
+  imp.txns = Bank.suggest(fresh, state.entries.filter(e => !C.isEnded(e, C.addDaysISO(C.todayISO(), -90))), state.settings.payeeRules || {})
+    .sort((a, b) => b.date.localeCompare(a.date));
+  imp.decision = new Map(imp.txns.map(t => [t.id, t.action]));
+  imp.recurring = Bank.findRecurring(imp.txns.filter(t => !t.action));
+  imp.newGroups = new Set([...imp.newGroups].filter(k => imp.recurring.some(g => g.key === k)));
+  imp.range = all.length ? [all.reduce((m, t) => (t.date < m ? t.date : m), all[0].date), all.reduce((m, t) => (t.date > m ? t.date : m), all[0].date)] : null;
+}
+
+function openImport() {
+  const sample = imp.rows[imp.fmt.hasHeader ? 1 : 0]?.[imp.fmt.date] || '';
+  const sampleISO = Bank.parseDate(sample, imp.order);
+  const entriesBy = type => state.entries.filter(e => e.type === type).sort((a, b) => a.name.localeCompare(b.name));
+  const groupOf = new Map(imp.recurring.flatMap(g => g.txns.map(t => [t.id, g])));
+
+  const select = t => {
+    const d = imp.decision.get(t.id) || '';
+    const g = groupOf.get(t.id);
+    const opt = (v, label) => `<option value="${esc(v)}" ${d === v ? 'selected' : ''}>${esc(label)}</option>`;
+    const list = type => entriesBy(type).map(e => opt(e.id, e.name)).join('');
+    return `<select data-txn="${t.id}" aria-label="What is this?">
+      ${opt('', 'Skip for now')}
+      ${opt('ignore', 'Ignore this one')}
+      ${opt('ignore-payee', 'Always ignore this payee')}
+      ${g && imp.newGroups.has(g.key) ? opt(`new:${g.key}`, `New: ${g.name}`) : ''}
+      <optgroup label="${t.amount < 0 ? 'Expenses' : 'Income'}">${list(t.amount < 0 ? 'expense' : 'income')}</optgroup>
+      <optgroup label="${t.amount < 0 ? 'Income (as a refund)' : 'Expenses (as a refund)'}">${list(t.amount < 0 ? 'income' : 'expense')}</optgroup>
+    </select>`;
+  };
+  const txRow = t => {
+    const d = imp.decision.get(t.id) || '';
+    const tag = t.why === 'rule' ? '<span class="pill">remembered</span>' : t.why === 'match' && d === t.action ? '<span class="pill soon">matched</span>' : '';
+    return `<div class="imp-row ${d && !d.startsWith('ignore') ? 'chosen' : ''} ${d.startsWith('ignore') ? 'ignored' : ''}">
+      <div class="imp-top">
+        <span class="imp-date">${esc(fmtDate(t.date))}</span>
+        <span class="imp-desc">${esc(t.description)}</span>
+        <span class="imp-amt ${t.amount < 0 ? 'neg' : 'pos'}">${t.amount < 0 ? '−' : '+'}${money(Math.abs(t.amount))}</span>
+      </div>
+      <div class="imp-bottom">${tag}${select(t)}</div>
+    </div>`;
+  };
+  const suggested = imp.txns.filter(t => t.action);
+  const rest = imp.txns.filter(t => !t.action);
+  const chosen = [...imp.decision.values()].filter(v => v && !v.startsWith('ignore')).length;
+
+  sheet.innerHTML = `
+  <div id="import">
+    <div class="sheet-head">
+      <button type="button" class="link" data-close>Cancel</button>
+      <h2 tabindex="-1" autofocus>Import statement</h2>
+      <button type="button" class="link strong" data-apply>Import</button>
+    </div>
+    <div class="sheet-body">
+      <section class="card form">
+        <div class="field"><span>File</span><div class="imp-file">${esc(imp.fileName)}<br><span class="muted">${imp.total} transactions${imp.range ? ` · ${fmtDate(imp.range[0])} – ${fmtDate(imp.range[1])}` : ''}</span></div></div>
+        <label class="field"><span>Account</span>
+          <input id="impAccount" list="dl-accounts" value="${esc(imp.account)}" autocomplete="off" aria-label="Account name"></label>
+        <div class="field"><span>Dates are</span>
+          <div class="seg small grow">
+            <button type="button" data-order="DMY" class="${imp.order === 'DMY' ? 'on' : ''}">Day/Month</button>
+            <button type="button" data-order="MDY" class="${imp.order === 'MDY' ? 'on' : ''}">Month/Day</button>
+          </div></div>
+        <datalist id="dl-accounts">${(state.settings.bankAccounts || []).map(a => `<option value="${esc(a)}">`).join('')}</datalist>
+      </section>
+      <p class="fine pad-x">${imp.orderDetected ? 'Date order detected from the file.' : '<strong>Check the date order:</strong> this file could be read either way.'}
+        ${sample ? `First row: ${esc(sample)} → ${sampleISO ? esc(dayMonthYear.format(C.parse(sampleISO))) : 'not a valid date'}.` : ''}
+        Keep the account name the same each time so repeated transactions are recognised.</p>
+      ${imp.already ? `<p class="fine pad-x"><strong>${imp.already}</strong> already imported or ignored — skipped.</p>` : ''}
+
+      ${imp.recurring.length ? `<div class="group-title">Looks recurring — not in your entries yet</div>
+      <section class="card list">${imp.recurring.map(g => `
+        <div class="row static label-row">
+          <div class="row-main"><div class="row-title">${esc(g.name)}</div>
+            <div class="row-sub">${g.txns.length} × ${g.variable ? '≈' : ''}${money(g.amount)} · ${C.FREQ[g.frequency].label.toLowerCase()} · ${esc(g.payee)}</div></div>
+          <button type="button" class="btn small ${imp.newGroups.has(g.key) ? 'on-btn' : ''}" data-new="${esc(g.key)}">${imp.newGroups.has(g.key) ? '✓ Adding' : 'Add as entry'}</button>
+        </div>`).join('')}</section>` : ''}
+
+      ${suggested.length ? `<div class="group-title">Matched (${suggested.length})</div>
+      <section class="card">${suggested.map(txRow).join('')}</section>` : ''}
+
+      ${rest.length ? `<div class="group-title">Not matched (${rest.length})
+        <button type="button" class="link small-link" data-ignore-rest>Ignore the rest</button></div>
+      <section class="card">${rest.map(txRow).join('')}</section>` : ''}
+
+      ${!imp.txns.length ? '<p class="empty-small">Nothing new in this file.</p>' : ''}
+      <p class="fine pad-x">Matched transactions are logged as payments on that entry, and the app remembers the payee
+        for next time. “Skip for now” leaves a transaction to decide on a later import.</p>
+      <button type="button" class="btn primary" data-apply>Import ${chosen} payment${chosen === 1 ? '' : 's'}</button>
+    </div>
+  </div>`;
+
+  const root = $('#import');
+  root.addEventListener('change', ev => {
+    const s = ev.target.closest('select[data-txn]');
+    if (s) { imp.decision.set(s.dataset.txn, s.value); return openImportKeepScroll(); }
+    if (ev.target.id === 'impAccount') {
+      imp.account = cleanLabel(ev.target.value) || imp.account;
+      buildImport(); openImportKeepScroll();
+    }
+  });
+  root.addEventListener('click', async ev => {
+    const t = ev.target;
+    if (t.closest('[data-close]')) { imp = null; return closeSheet(); }
+    const o = t.closest('[data-order]');
+    if (o) { imp.order = o.dataset.order; buildImport(); return openImportKeepScroll(); }
+    const n = t.closest('[data-new]');
+    if (n) {
+      const g = imp.recurring.find(x => x.key === n.dataset.new);
+      if (imp.newGroups.has(g.key)) {
+        imp.newGroups.delete(g.key);
+        g.txns.forEach(x => { if (imp.decision.get(x.id) === `new:${g.key}`) imp.decision.set(x.id, ''); });
+      } else {
+        imp.newGroups.add(g.key);
+        g.txns.forEach(x => { if (!imp.decision.get(x.id)) imp.decision.set(x.id, `new:${g.key}`); });
+      }
+      return openImportKeepScroll();
+    }
+    if (t.closest('[data-ignore-rest]')) {
+      imp.txns.forEach(x => { if (!imp.decision.get(x.id)) imp.decision.set(x.id, 'ignore'); });
+      return openImportKeepScroll();
+    }
+    if (t.closest('[data-apply]')) await applyImport();
+  });
+
+  if (!sheet.open) { document.body.classList.add('modal-open'); sheet.showModal(); }
+}
+
+/** Redraw the import sheet without jumping back to the top. */
+function openImportKeepScroll() {
+  const y = sheet.scrollTop;
+  openImport();
+  sheet.scrollTop = y;
+}
+
+async function applyImport() {
+  const now = new Date().toISOString();
+  const rules = { ...(state.settings.payeeRules || {}) };
+  const ignored = [...(state.settings.ignoredTxns || [])];
+  const changed = new Map(); // entry id → updated entry
+  const get = id => changed.get(id) || state.entries.find(e => e.id === id);
+  let logged = 0, ignoredCount = 0;
+
+  // New entries from recurring groups
+  for (const key of imp.newGroups) {
+    const g = imp.recurring.find(x => x.key === key);
+    if (!g) continue;
+    const id = uid();
+    const start = g.txns[0].date;
+    changed.set(id, {
+      id, type: g.type, name: g.name, category: '', method: imp.account, frequency: g.frequency, startDate: start,
+      contractEnd: null, endsAtExpiry: false, endDate: null, notes: `Added from a bank import (${g.payee})`, tags: [],
+      prices: [{ from: start, amount: g.variable ? null : g.amount, frequency: g.frequency }],
+      variable: g.variable, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
+    });
+    g.newId = id;
+    rules[g.payee] = id;
+  }
+
+  for (const t of imp.txns) {
+    let d = imp.decision.get(t.id) || '';
+    if (!d) continue;
+    if (d === 'ignore' || d === 'ignore-payee') {
+      ignored.push(t.id); ignoredCount++;
+      if (d === 'ignore-payee') rules[t.payee] = 'ignore';
+      continue;
+    }
+    if (d.startsWith('new:')) d = imp.recurring.find(g => g.key === d.slice(4))?.newId;
+    const e = d && get(d);
+    if (!e) continue;
+    // Payments are stored as the bill amount: money out on an expense (or in on income) is positive;
+    // the other direction is a refund/credit (negative).
+    const amount = e.type === 'expense' ? -t.amount : t.amount;
+    const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note: t.description.slice(0, 100), source: t.id };
+    changed.set(e.id, { ...e, payments: [...(e.payments || []), payment], updatedAt: now });
+    if (!d.startsWith('new:')) rules[t.payee] = e.id;
+    logged++;
+  }
+
+  const toSave = [...changed.values()].map(normalizeEntry).filter(Boolean);
+  if (toSave.length) await db.putEntries(toSave);
+  state.settings.payeeRules = rules;
+  state.settings.ignoredTxns = ignored.slice(-5000);
+  state.settings.bankAccounts = uniqueCI([imp.account, ...(state.settings.bankAccounts || [])]);
+  await saveSettings();
+  const added = imp.newGroups.size;
+  imp = null;
+  closeSheet();
+  await reload();
+  toast(`Logged ${logged} payment${logged === 1 ? '' : 's'}${added ? `, added ${added} entr${added === 1 ? 'y' : 'ies'}` : ''}${ignoredCount ? `, ignored ${ignoredCount}` : ''}`);
+}
+
 // ---------- Manage labels sheet ----------
 let manageKind = 'category';
 
@@ -1058,6 +1295,7 @@ function closeSheet() {
 }
 sheet.addEventListener('close', () => {
   document.body.classList.remove('modal-open');
+  sheet.innerHTML = ''; // don't leave a hidden copy of the last sheet in the page
   render(); // labels may have changed while the sheet was open
 });
 
@@ -1339,6 +1577,7 @@ const actions = {
   },
   'manage-labels': () => openManage('category'),
   'manage-budgets': () => { editingBudget = null; openBudgets(); },
+  'import-bank': () => $('#bankFile').click(),
   period: async t => { state.settings.period = t.dataset.period; await saveSettings(); render(); },
   'export-csv': exportCSV,
   'mark-paid': async t => {
@@ -1368,7 +1607,8 @@ const actions = {
     if (!confirm('Erase ALL entries on this device? Export a backup first if you might need them.')) return;
     if (!confirm('Are you sure? This cannot be undone.')) return;
     await db.clearEntries();
-    Object.assign(state.settings, { lastBackup: null, budgets: [], balance: null, paydayId: null });
+    Object.assign(state.settings, { lastBackup: null, budgets: [], balance: null, paydayId: null,
+      payeeRules: {}, ignoredTxns: [], bankAccounts: [] });
     await saveSettings();
     await reload();
     toast('All data erased');
@@ -1403,6 +1643,10 @@ view.addEventListener('change', async ev => {
     state.settings.paydayId = ev.target.value || null;
     await saveSettings();
     toast('Payday updated');
+  } else if (ev.target.id === 'bankFile' && ev.target.files[0]) {
+    const file = ev.target.files[0];
+    ev.target.value = '';
+    await startBankImport(file);
   } else if (ev.target.id === 'importFile' && ev.target.files[0]) {
     await importBackup(ev.target.files[0]);
     ev.target.value = '';

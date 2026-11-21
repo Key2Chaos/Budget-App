@@ -1,0 +1,88 @@
+// Importing a CommBank-style statement (made-up data), as an Australian user would.
+import { fileURLToPath } from 'node:url';
+import { test, expect, openWithSample, tab, row, editEntry } from './helpers.mjs';
+
+test.use({ locale: 'en-AU', timezoneId: 'Australia/Sydney' });
+const csv = name => fileURLToPath(new URL(`../fixtures/bank/${name}`, import.meta.url));
+const imp = page => page.locator('#import');
+// a transaction row, found by its description (not the entry names in its dropdown)
+const txn = (page, text) => imp(page).locator('.imp-row', { has: page.locator('.imp-desc', { hasText: text }) });
+
+async function chooseFile(page, name) {
+  await tab(page, 'settings');
+  await page.locator('#bankFile').setInputFiles(csv(name));
+  await expect(imp(page)).toBeVisible();
+}
+
+test('credit card statement: matches, recurring, ignore payee, import, no duplicates on re-import', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-credit-card.csv');
+
+  // File details and detected settings
+  await expect(imp(page)).toContainText('14 transactions');
+  await expect(page.locator('#impAccount')).toHaveValue('CommBank credit card');
+  await expect(imp(page).locator('[data-order=DMY]')).toHaveClass(/on/);
+  await expect(imp(page)).toContainText('Date order detected from the file.');
+
+  // Matched to existing entries
+  for (const [text, entry] of [['NETFLIX.COM', 'Netflix'], ['SPOTIFY', 'Spotify'], ['APPLE.COM', 'Apple One'], ['AAMI INSURANCE', 'Car insurance']]) {
+    const sel = txn(page, text).first().locator('select');
+    await expect(sel.locator('option:checked'), text).toHaveText(entry);
+  }
+  // Recurring, not yet an entry
+  const recurring = imp(page).locator('.label-row', { hasText: 'Disney Plus' });
+  await expect(recurring).toContainText('3 × $13.99 · monthly');
+  await recurring.locator('[data-new]').click();
+  await expect(txn(page, 'DISNEY PLUS').first().locator('select option:checked')).toHaveText('New: Disney Plus');
+
+  // Always ignore a payee
+  await txn(page, 'WOOLWORTHS').locator('select').selectOption('ignore-payee');
+  await page.screenshot({ path: test.info().outputPath('import-review.png'), fullPage: true });
+
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('added 1 entry');
+  await expect(page.locator('#toast')).toContainText('ignored 1');
+
+  await tab(page, 'entries');
+  await expect(row(page, 'Disney Plus')).toContainText('Monthly');
+  await expect(row(page, 'Disney Plus')).toContainText('Last $13.99 on 3 Nov');
+  await expect(row(page, 'Car insurance')).toContainText('Last $56.00 on 18 Nov');
+
+  // Same file again: everything already handled is skipped
+  await chooseFile(page, 'commbank-credit-card.csv');
+  await expect(imp(page)).toContainText('already imported or ignored — skipped');
+  await expect(txn(page, 'NETFLIX.COM')).toHaveCount(0);
+  await expect(txn(page, 'WOOLWORTHS')).toHaveCount(0);
+  await expect(txn(page, 'KMART')).toHaveCount(1);            // was skipped, so it comes back to decide
+});
+
+test('savings statement: income and transfers matched; payments land on the right due dates', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-savings.csv');
+  await expect(page.locator('#impAccount')).toHaveValue('CommBank account');
+  await expect(txn(page, 'Salary').locator('select option:checked')).toHaveText('Salary');
+  await expect(txn(page, 'Rent November').locator('select option:checked')).toHaveText('Rent');
+  await expect(txn(page, 'ORIGIN ENERGY').locator('select option:checked')).toHaveText('Electricity & gas');
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+  await editEntry(page, 'Rent');
+  const pay = page.locator('#payments .pay-row').first();
+  await expect(pay.locator('[name=paydate]')).toHaveValue('2026-11-01');
+  await expect(pay.locator('[name=payamount]')).toHaveValue('1010.00');
+});
+
+test('ambiguous dates: the user can switch the order and sees a preview', async ({ page }) => {
+  await page.goto('/');
+  await chooseFile(page, 'ambiguous-dates.csv');
+  await expect(imp(page)).toContainText('Check the date order');
+  await expect(imp(page)).toContainText('03/11/2026 → 3 Nov 2026');
+  await imp(page).locator('[data-order=MDY]').click();
+  await expect(imp(page)).toContainText('03/11/2026 → 11 Mar 2026');
+});
+
+test('a file that isn’t a statement is rejected with a clear message', async ({ page }) => {
+  await page.goto('/');
+  await tab(page, 'settings');
+  await page.locator('#bankFile').setInputFiles({ name: 'notes.csv', mimeType: 'text/csv', buffer: Buffer.from('hello,world\nfoo,bar\n') });
+  await expect.poll(() => page.dialogs.at(-1)).toContain('wasn’t recognised as a bank statement');
+});

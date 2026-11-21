@@ -377,6 +377,25 @@ form.is-variable #prices .icon-btn { order: 4; flex: none; }
 .pd-amt { font-weight: 600; }
 .pd-left { color: var(--muted); font-size: 13px; min-width: 5em; text-align: right; }
 
+/* ---------- Bank import ---------- */
+.imp-file { flex: 1; text-align: right; font-size: 15px; word-break: break-word; }
+.imp-row { padding: 10px 16px; display: flex; flex-direction: column; gap: 6px; }
+.imp-row + .imp-row { border-top: 0.5px solid var(--line); }
+.imp-row.ignored { opacity: 0.55; }
+.imp-top { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; }
+.imp-date { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.imp-desc { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-amt { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.imp-bottom { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.imp-bottom select {
+  max-width: 70%; border: 0; border-radius: 8px; color: var(--text); font-size: 15px;
+  -webkit-appearance: none; appearance: none; padding: 6px 28px 6px 10px;
+  background: var(--fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center / 11px 8px;
+}
+.imp-row.chosen .imp-bottom select { color: var(--accent); font-weight: 600; }
+.btn.small.on-btn { background: var(--accent); color: #fff; }
+.group-title .small-link { float: right; text-transform: none; letter-spacing: 0; font-size: 13px; }
+
 /* ---------- Manage labels ---------- */
 .chev { color: var(--muted); font-size: 22px; line-height: 1; }
 .manage-help { margin: 12px 4px 14px; }

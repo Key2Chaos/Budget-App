@@ -30,7 +30,7 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 |---|------|------|-------|
 | 11 | **Face ID / passcode lock** on opening | M | Possible with WebAuthn. A lighter lock than a banking app's |
 | 12 | **Split one bill across categories**, e.g. part of Apple One counted as cloud storage | M | Tags cover most of this today |
-| 13 | **Import a bank statement (CSV)** to log payments automatically by matching amounts and dates | L | Big time-saver for variable bills. Needs careful matching |
+| 13 | **Bank import, next steps:** a "which column is what" screen for unusual CSVs; presets for NAB, Westpac, ANZ, ING and Up; the Up Bank personal API for one-tap refresh | M | The basic importer is done (see Done) |
 | 14 | **Savings goals**: target, date and progress | M | |
 | 15 | **Push notifications** for bills due or notice deadlines | L | iPhone Home Screen apps support web push, but it needs a small server |
 | 16 | **iCloud sync (CloudKit)** across devices | L | Needs an Apple Developer account ($99/yr). Today's iCloud Drive backups work without it |
@@ -58,3 +58,4 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-21 | Biggest changes, Month/Year view, budgets, until payday, CSV export |
 | 2026-11-21 | Amount varies without a fixed amount (format v3). Removed stray focus boxes |
 | 2026-11-21 | Browser tests in the repo (Chromium + WebKit, offline, start-up upgrade, Australia/Sydney time) running on GitHub. Fixed "Last backup" showing the UTC date. Region-specific payment methods (AU: BPAY, PayID; US; CA; NZ; UK) |
+| 2026-11-21 | Bank statement import (CommBank CSV + header-row files): matching, remembered payees, no duplicates, recurring detection |

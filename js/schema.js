@@ -153,6 +153,21 @@ function normalizeSettings(raw) {
   if (raw && str(raw.lastBackup)) out.lastBackup = raw.lastBackup;
   const budgets = normalizeBudgets(raw?.budgets);
   if (budgets.length) out.budgets = budgets;
+  // Bank import memory (added Nov 2026, optional): which payee goes to which entry, ignored
+  // transactions, and account names used for imports.
+  if (raw?.payeeRules && typeof raw.payeeRules === 'object') {
+    const rules = Object.fromEntries(Object.entries(raw.payeeRules)
+      .filter(([k, v]) => typeof k === 'string' && k && typeof v === 'string' && v));
+    if (Object.keys(rules).length) out.payeeRules = rules;
+  }
+  if (Array.isArray(raw?.ignoredTxns)) {
+    const ids = [...new Set(raw.ignoredTxns.filter(x => typeof x === 'string' && x))].slice(-5000);
+    if (ids.length) out.ignoredTxns = ids;
+  }
+  if (Array.isArray(raw?.bankAccounts)) {
+    const names = [...new Set(raw.bankAccounts.map(cleanLabel).filter(Boolean))];
+    if (names.length) out.bankAccounts = names;
+  }
   return out;
 }
 

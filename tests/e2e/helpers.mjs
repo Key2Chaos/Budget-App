@@ -40,9 +40,9 @@ export async function openWithSample(page) {
   await expect(page.locator('.summary')).toBeVisible();
 }
 
-/** A list row whose title is exactly `name`. */
+/** A list row on the main screen whose title is exactly `name`. */
 export const row = (page, name) =>
-  page.locator('.row', { has: page.locator('.row-title', { hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) });
+  page.locator('#view .row', { has: page.locator('.row-title', { hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) });
 
 /** The card on the Overview with this heading. */
 export const card = (page, heading) => page.locator('section.card', { has: page.locator('h3', { hasText: heading }) });

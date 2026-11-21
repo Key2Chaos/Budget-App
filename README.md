@@ -47,6 +47,19 @@ No backend, no account. All data lives on the device in IndexedDB.
 - **Until payday**: everything due before your next pay. Optionally enter your current balance to
   see what's left after each payment. Overdue manual payments are included. Choose which income is
   your payday in Settings.
+- **Bank statement import** (Settings → Import bank statement): download a CSV from your bank and
+  import it. Everything happens on the phone.
+  - **Recognised automatically:** CommBank files (credit card and transaction/savings accounts),
+    plus most files with a header row (Date / Amount or Debit & Credit / Description).
+  - **Dates:** day/month order is detected from the file. If the file could be read either way, you
+    choose, with a preview.
+  - **Matching:** each transaction is matched to an entry by name (whole words), amount and due date,
+    then logged as a payment. Your choices are remembered for next time, e.g. "ORIGIN ENERGY" →
+    *Electricity & gas*, or "always ignore this payee".
+  - **No duplicates:** importing an overlapping statement never logs the same transaction twice. Keep
+    the same account name each time.
+  - **Recurring payments you haven't added**, e.g. "Disney Plus, 3 × $13.99 monthly", can be added as
+    entries with one tap, past payments included.
 - **Spreadsheet export** (Settings → Export spreadsheet): three CSV files (entries, payments and
   monthly totals) for Excel or Numbers.
 - **Backup**: export to the iOS share sheet, then "Save to Files" → iCloud Drive. Import merges a
