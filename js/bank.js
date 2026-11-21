@@ -134,17 +134,30 @@ export function toTransactions(rows, fmt, order) {
       if (Number.isFinite(out_) && out_ !== 0) amount = -Math.abs(out_);
       else if (Number.isFinite(in_)) amount = Math.abs(in_);
     }
-    const description = (r[fmt.desc] || '').replace(/\s+/g, ' ').trim();
+    const raw = r[fmt.desc] || '';
+    const description = raw.replace(/\s+/g, ' ').trim();
     if (!date || !Number.isFinite(amount) || amount === 0 || !description) continue;
     const balance = fmt.balance >= 0 ? parseMoney(r[fmt.balance]) : NaN;
-    out.push({ date, amount: Math.round(amount * 100) / 100, description, balance: Number.isFinite(balance) ? balance : null });
+    out.push({ date, amount: Math.round(amount * 100) / 100, description, merchant: merchantPart(raw),
+      balance: Number.isFinite(balance) ? balance : null });
   }
   return out;
 }
 
 // ---------- Payee keys & transaction ids ----------
 
-const NOISE = /\b(VALUE DATE:?\s*\S+|CARD\s*XX\d+|CARD\s*\d+|XX\d+|AUS?|AUSTRALIA|NSW|VIC|QLD|TAS|ACT|NT|NZL?|GBR?|USA?|DIRECT DEBIT|DIRECT CREDIT|TRANSFER (TO|FROM)|PAYMENT (TO|FROM)|EFTPOS|VISA (DEBIT )?PURCHASE|PURCHASE|PENDING|RECURRING|PTY|LTD)\b/g;
+/**
+ * Card statements pad the merchant name into a fixed-width column, then the town and country:
+ * 'SUPERLOOP LIMITED        1800961618  AUS' and 'Superloop Limited        BRISBANE    AUS' are the
+ * same payee. The text before the first run of 2+ spaces is the merchant. Null when there's no such
+ * gap (e.g. CommBank transaction-account lines, which use single spaces).
+ */
+export function merchantPart(raw) {
+  const parts = String(raw).trim().split(/\s{2,}/);
+  return parts.length > 1 && parts[0].length >= 3 ? parts[0] : null;
+}
+
+const NOISE = /\b(VALUE DATE:?\s*\S+|CARD\s*XX\d+|CARD\s*\d+|XX\d+|AUS?|AUSTRALIA|NSW|VIC|QLD|TAS|ACT|NT|NZL?|GBR?|USA?|DIRECT DEBIT|DIRECT CREDIT|TRANSFER (TO|FROM)|PAYMENT (TO|FROM)|EFTPOS|VISA (DEBIT )?PURCHASE|PURCHASE|PENDING|RECURRING|PTY|LTD|LIMITED|INC)\b/g;
 
 /** A stable key for "who was paid": 'NETFLIX.COM Melbourne AU Card xx1234 Value Date: 01/11/2026' → 'NETFLIX COM MELBOURNE'. */
 export function payeeKey(description) {
@@ -176,7 +189,9 @@ export function withIds(txns, account) {
     const base = `${account.toLowerCase()}|${t.date}|${t.amount}|${t.description.toUpperCase()}`;
     const n = (seen.get(base) || 0) + 1;
     seen.set(base, n);
-    return { ...t, id: `t${hash(base)}${n > 1 ? `-${n}` : ''}`, payee: payeeKey(t.description) };
+    // `oldPayee` is the key before merchantPart existed, so choices remembered then still apply.
+    return { ...t, id: `t${hash(base)}${n > 1 ? `-${n}` : ''}`, payee: payeeKey(t.merchant || t.description),
+      oldPayee: payeeKey(t.description) };
   });
 }
 
@@ -234,7 +249,7 @@ export function matchScore(txn, e) {
 export function suggest(txns, entries, rules = {}) {
   const byId = new Map(entries.map(e => [e.id, e]));
   return txns.map(t => {
-    const rule = rules[t.payee];
+    const rule = rules[t.payee] ?? rules[t.oldPayee];
     if (rule === 'ignore') return { ...t, action: 'ignore', why: 'rule' };
     if (rule && byId.has(rule)) return { ...t, action: rule, why: 'rule' };
     let best = null, bestScore = 0;

@@ -59,3 +59,4 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-21 | Amount varies without a fixed amount (format v3). Removed stray focus boxes |
 | 2026-11-21 | Browser tests in the repo (Chromium + WebKit, offline, start-up upgrade, Australia/Sydney time) running on GitHub. Fixed "Last backup" showing the UTC date. Region-specific payment methods (AU: BPAY, PayID; US; CA; NZ; UK) |
 | 2026-11-21 | Bank statement import (CommBank CSV + header-row files): matching, remembered payees, no duplicates, recurring detection |
+| 2026-11-21 | Bank import: card payees grouped by merchant, ignoring the town after it (e.g. Superloop "BRISBANE" vs "1800 number" was split in two) |

@@ -350,7 +350,7 @@ test('CommBank credit card file: detected, DD/MM dates, signed amounts', () => {
   assert.equal(B.detectDateOrder(rows.map(r => r[fmt.date])), 'DMY');
   const txns = B.toTransactions(rows, fmt, 'DMY');
   assert.equal(txns.length, 14);
-  assert.deepEqual(txns[0], { date: '2026-11-20', amount: 250, description: 'PAYMENT RECEIVED, THANK YOU', balance: null });
+  assert.deepEqual(txns[0], { date: '2026-11-20', amount: 250, description: 'PAYMENT RECEIVED, THANK YOU', merchant: null, balance: null });
   assert.equal(txns[5].amount, -12.99);
 });
 
@@ -426,6 +426,26 @@ test('recurring payments not yet added are spotted with their frequency', () => 
   assert.equal(disney.variable, false);
   assert.equal(rec.find(r => r.payee.startsWith('GOOGLE')).frequency, 'monthly');
   assert.ok(!rec.some(r => r.payee.startsWith('KMART')), 'one-offs are not recurring');
+});
+
+test('card lines: the padded merchant column is the payee, whatever town follows it', () => {
+  assert.equal(B.merchantPart('NETLOOP LIMITED          1800000000  AUS'), 'NETLOOP LIMITED');
+  assert.equal(B.merchantPart('Direct Debit 445566 ORIGIN ENERGY'), null); // single-spaced lines are left alone
+  const rows = B.parseCSV(bankFile('commbank-credit-card-padded.csv'));
+  const txns = B.withIds(B.toTransactions(rows, B.detectFormat(rows), 'DMY'), 'Card');
+  // same description text as before the change, so transaction ids don't move
+  assert.equal(txns[1].description, 'NETLOOP LIMITED 1800000000 AUS');
+  assert.equal(new Set(txns.filter(t => /netloop/i.test(t.description)).map(t => t.payee)).size, 1);
+  assert.equal(new Set(txns.filter(t => t.description.startsWith('GROCER')).map(t => t.payee)).size, 1);
+  const rec = B.findRecurring(txns);
+  const loop = rec.filter(r => r.payee.startsWith('NETLOOP'));
+  assert.equal(loop.length, 1, 'one recurring group, not one per town');
+  assert.equal(loop[0].txns.length, 4);
+  assert.equal(loop[0].frequency, 'monthly');
+  assert.equal(loop[0].name, 'Netloop');
+  // a choice remembered under the old key (with the town) still applies
+  const ruled = B.suggest(txns, [], { [B.payeeKey('Netloop Limited BRISBANE AUS')]: 'ignore' });
+  assert.equal(ruled.filter(t => t.action === 'ignore').length, 2);
 });
 
 test('import memory (rules, ignored, accounts) survives a backup round trip', () => {
