@@ -109,6 +109,20 @@ On the iPhone, open the URL in **Safari** → Share → **Add to Home Screen**.
 Bump `VERSION` in `sw.js` each time you deploy. The installed app picks up the new version on its
 next launch or the one after.
 
+## Tests
+
+| Command | What it checks | Where it runs |
+| --- | --- | --- |
+| `npm test` (or `node tests/run.mjs`) | Old backups still import; date and money maths; the offline file list | Before every commit (pre-commit hook) and on GitHub |
+| `npm run test:e2e` | The real app in a phone-sized browser: every screen, adding, editing and deleting, backups, CSV, labels, payments, budgets, payday, offline mode, upgrading old saved data, focus. Also an **Australian** run (en-AU, Sydney time, including just after midnight) | On GitHub after every push, in Chromium and **WebKit** (Safari's engine) |
+
+Setup for the browser tests is a one-off `npm install`. Locally they use your installed Microsoft Edge.
+To also run WebKit: `npx playwright install webkit`, then `E2E_WEBKIT=1 npm run test:e2e`.
+
+The browser tests freeze the date at 21 Nov 2026, so screens that depend on the date look the same
+every day. Each test starts with an empty app. If a test fails on GitHub, the run keeps a report
+with screenshots and a step-by-step trace: open the run, then **Artifacts → playwright-report**.
+
 ## Keeping old backups working
 
 Any backup ever exported from the app must keep importing into every future version. The same goes

@@ -9,7 +9,6 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 
 | # | Item | Size | Why |
 |---|------|------|-----|
-| 1 | **Put the browser tests in the repo.** Move the phone-sized walkthrough scripts into `tests/e2e/` (with `playwright-core` as a dev dependency) and run them on GitHub after each push | M | They currently live outside the repo. Without them, a later change could break a screen without anyone noticing |
 | 2 | **Undo after delete.** Show a toast with an *Undo* button instead of (or as well as) the confirm box. Covers entries, payments, labels and budgets | S | Mistakes are easy to recover from. Fewer pop-ups |
 | 3 | **Add to Calendar.** Export contract end and notice dates (and optionally big yearly bills) as a calendar file, with an alert before each | S | Reminders that work offline, with no server |
 | 4 | **Duplicate entry.** A "Duplicate" button in the edit sheet | S | Faster to add similar bills |
@@ -58,3 +57,4 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-21 | Payment log, amount varies, manual payments / To pay, your share, notice periods |
 | 2026-11-21 | Biggest changes, Month/Year view, budgets, until payday, CSV export |
 | 2026-11-21 | Amount varies without a fixed amount (format v3). Removed stray focus boxes |
+| 2026-11-21 | Browser tests in the repo (Chromium + WebKit, offline, start-up upgrade, Australia/Sydney time) running on GitHub. Fixed "Last backup" showing the UTC date. Region-specific payment methods (AU: BPAY, PayID; US; CA; NZ; UK) |

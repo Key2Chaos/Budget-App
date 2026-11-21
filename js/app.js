@@ -10,8 +10,20 @@ const CATEGORIES = {
             'Groceries', 'Health', 'Entertainment', 'Debt', 'Savings', 'Other'],
   income: ['Salary', 'Freelance', 'Benefits', 'Investments', 'Rental', 'Gift', 'Other'],
 };
-const METHODS = ['Direct debit', 'Standing order', 'Debit card', 'Credit card', 'Apple Pay',
-                 'Bank transfer', 'PayPal', 'Cash', 'Other'];
+/** The phone's region, e.g. "AU" from "en-AU". */
+const REGION = ((navigator.language || 'en-US').split('-')[1] || '').toUpperCase();
+/** Payment methods people actually use in each region (suggestions only — anything can be typed). */
+const METHODS = [
+  'Direct debit',
+  ...({
+    AU: ['BPAY', 'PayID'], NZ: ['Automatic payment'], GB: ['Standing order'], IE: ['Standing order'],
+    US: ['Autopay', 'ACH transfer', 'Check', 'Zelle', 'Venmo'], CA: ['Pre-authorized debit', 'Interac e-Transfer'],
+  }[REGION] || ['Standing order']),
+  'Debit card', 'Credit card', 'Apple Pay', 'Bank transfer', 'PayPal', 'Cash', 'Other',
+];
+
+/** A stored timestamp (UTC) as the phone's local calendar date — e.g. 8am in Sydney is still "today". */
+const localDay = ts => C.iso(new Date(ts));
 const CURRENCIES = ['GBP', 'USD', 'EUR', 'AUD', 'CAD', 'NZD', 'CHF', 'SEK', 'NOK', 'DKK', 'JPY', 'INR', 'SGD', 'ZAR'];
 const FORECAST_MONTHS = 3;
 const TITLES = { overview: 'Overview', entries: 'Entries', settings: 'Settings' };
@@ -185,7 +197,7 @@ function renderOverview() {
   const now = new Date();
   const today = C.todayISO();
   const entries = tagFiltered();
-  const needsBackup = !state.settings.lastBackup || C.daysBetween(state.settings.lastBackup.slice(0, 10), today) > 30;
+  const needsBackup = !state.settings.lastBackup || C.daysBetween(localDay(state.settings.lastBackup), today) > 30;
   const backupBanner = needsBackup ? `<button class="banner" data-action="go-settings">
       <strong>Back up your data</strong><span>Your budget lives only on this device. Save a copy to iCloud Drive.</span></button>` : '';
 
@@ -591,7 +603,7 @@ async function renderSettings() {
       </button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </section>
-    <p class="fine pad-x">${state.entries.length} entries · Last backup: ${state.settings.lastBackup ? fmtDate(state.settings.lastBackup.slice(0, 10)) : 'never'}.
+    <p class="fine pad-x">${state.entries.length} entries · Last backup: ${state.settings.lastBackup ? fmtDate(localDay(state.settings.lastBackup)) : 'never'}.
       Your data is stored only on this device. Saving a backup to iCloud Drive lets you restore it on another iPhone, iPad or Mac.</p>
 
     <div class="group-title">Storage</div>
@@ -1231,6 +1243,7 @@ async function importBackup(file) {
 
 // ---------- Sample data ----------
 function sampleEntries() {
+  const TRANSFER = METHODS.includes('Standing order') ? 'Standing order' : 'Bank transfer'; // regular transfers, in local terms
   const now = new Date();
   const m = (offset, day = 1) => C.iso(new Date(now.getFullYear(), now.getMonth() + offset, day));
   const d = days => C.addDaysISO(C.todayISO(), days);
@@ -1241,7 +1254,7 @@ function sampleEntries() {
          prices: [{ from: m(-26, 28), amount: 2650 }, { from: m(-14, 28), amount: 2780 }, { from: m(-3, 28), amount: 2950 }] }),
     mk({ type: 'income', name: 'Freelance design job', category: 'Freelance', method: 'PayPal', frequency: 'once', startDate: m(-2, 12),
          prices: [{ from: m(-2, 12), amount: 450 }] }),
-    mk({ type: 'expense', name: 'Rent', category: 'Housing', method: 'Standing order', frequency: 'monthly', startDate: m(-26, 1),
+    mk({ type: 'expense', name: 'Rent', category: 'Housing', method: TRANSFER, frequency: 'monthly', startDate: m(-26, 1),
          prices: [{ from: m(-26, 1), amount: 950 }, { from: m(-12, 1), amount: 1010 }] }),
     mk({ type: 'expense', name: 'Electricity & gas', category: 'Utilities', method: 'Direct debit', frequency: 'monthly', startDate: m(-26, 15),
          prices: [{ from: m(-26, 15), amount: 92 }, { from: m(-16, 15), amount: 128 }, { from: m(-5, 15), amount: 115 }] }),
@@ -1274,7 +1287,7 @@ function sampleEntries() {
                   { from: m(-3, 18), amount: 56, frequency: 'monthly' }] }),
     mk({ type: 'expense', name: 'Groceries', category: 'Groceries', method: 'Debit card', frequency: 'weekly', startDate: m(-26, 2),
          prices: [{ from: m(-26, 2), amount: 70 }, { from: m(-11, 2), amount: 82 }] }),
-    mk({ type: 'expense', name: 'Savings', category: 'Savings', method: 'Standing order', frequency: 'monthly', startDate: m(-6, 1),
+    mk({ type: 'expense', name: 'Savings', category: 'Savings', method: TRANSFER, frequency: 'monthly', startDate: m(-6, 1),
          prices: [{ from: m(-6, 1), amount: 200 }] }),
   ].map(e => {
     e.prices[0].from = e.startDate;
