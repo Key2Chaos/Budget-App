@@ -6,6 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as C from '../js/calc.js';
+import * as R from '../js/reports.js';
 import { SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry, normalizeTags, cleanTag } from '../js/schema.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -241,6 +242,70 @@ test('normalising twice changes nothing', () => {
     const once = normalizeEntry(raw);
     assert.deepEqual(normalizeEntry(once), once);
   }
+});
+
+// ---------- Reports: biggest changes, yearly, budgets, payday, CSV ----------
+
+const reportData = () => migrateBackup(load('v2-2026-11-budgets.json'));
+
+test('budgets survive a backup round trip', () => {
+  const { settings } = reportData();
+  assert.deepEqual(settings.budgets.map(b => [b.kind, b.label, b.amount]),
+    [['category', 'Subscriptions', 30], ['tag', 'streaming', 20]]);
+});
+
+test('biggest changes over a year: rises, new, ended', () => {
+  const { entries } = reportData();
+  const rows = R.biggestChanges(entries, '2025-11-21', '2026-11-21', 10);
+  assert.deepEqual(rows.map(r => [r.e.name, r.kind]), [
+    ['Salary', 'up'], ['Cleaner, "weekly"', 'new'], ['Gym', 'ended'], ['Disney+', 'new'], ['Netflix', 'up']]);
+  assert.equal(Math.round(rows[0].diff), 200);
+  assert.ok(!rows.some(r => r.e.name === 'Rent'), 'unchanged bills are left out');
+});
+
+test('yearly totals at today’s rates (your share, no one-offs)', () => {
+  const { entries } = reportData();
+  const t = R.annualTotals(entries, '2026-11-21');
+  assert.equal(Math.round(t.income), 32400);
+  assert.equal(Math.round(t.expense * 100) / 100, 155.88 + 89.9 + 8400 + 1300);
+});
+
+test('budgets: spent, over and newly over', () => {
+  const { entries, settings } = reportData();
+  const [subs, streaming] = settings.budgets;
+  const s = R.budgetStatus(entries, subs, 2026, 10);
+  assert.ok(Math.abs(s.spent - (12.99 + 89.9 / 12)) < 1e-9);
+  assert.equal(s.over, false);
+  assert.equal(R.budgetStatus(entries, streaming, 2026, 10).over, true);
+  const withoutDisney = entries.filter(e => e.name !== 'Disney+');
+  assert.deepEqual(R.newlyOver(withoutDisney, entries, settings.budgets, 2026, 10).map(x => x.budget.label), ['streaming']);
+});
+
+test('until payday: next pay date, overdue manual payments included', () => {
+  const { entries } = reportData();
+  const pd = R.untilPayday(entries, '2026-11-21');
+  assert.equal(pd.main.name, 'Salary');
+  assert.equal(pd.payday, '2026-11-25');
+  assert.equal(pd.days, 4);
+  assert.deepEqual(pd.items.map(i => [i.e.name, i.due, i.overdue]),
+    ['2026-10-23', '2026-10-30', '2026-11-06', '2026-11-20'].map(d => ['Cleaner, "weekly"', d, true]));
+  assert.equal(pd.out, 100);
+});
+
+test('CSV: quoting, formula guard, numbers, BOM', () => {
+  assert.equal(R.csvCell('Cleaner, "weekly"'), '"Cleaner, ""weekly"""');
+  assert.equal(R.csvCell('=SUM(A1)'), "'=SUM(A1)");
+  assert.equal(R.csvCell(-12.345), '-12.35');
+  assert.equal(R.csvCell(null), '');
+  assert.equal(R.csvCell(true), 'Yes');
+  const { entries } = reportData();
+  const rows = R.entriesRows(entries, '2026-11-21');
+  assert.ok(rows.every(r => r.length === rows[0].length), 'every row has every column');
+  const csv = R.toCSV(rows);
+  assert.ok(csv.startsWith('﻿Name,Type,'));
+  assert.ok(csv.includes("'=SUM(A1) should stay text"));
+  assert.equal(R.paymentsRows(entries).length, 2);
+  assert.equal(R.monthlyRows(entries, 2026, 0, 12).length, 13);
 });
 
 // ---------- Offline cache ----------

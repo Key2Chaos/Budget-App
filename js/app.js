@@ -1,6 +1,7 @@
 import { db } from './db.js';
 import * as C from './calc.js';
 import { buildChart } from './chart.js';
+import * as R from './reports.js';
 import { APP_ID, SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry, normalizeTags, cleanTag, cleanLabel } from './schema.js';
 
 // ---------- Constants ----------
@@ -92,6 +93,7 @@ const monthShort = new Intl.DateTimeFormat(undefined, { month: 'short' });
 const monthLong = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
 const monthYear = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
 const dayMonth = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+const dayShort = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric' });
 const dayMonthYear = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 function fmtDate(s) {
   const d = C.parse(s);
@@ -190,6 +192,11 @@ function renderOverview() {
     return;
   }
   const cur = C.monthTotals(entries, now.getFullYear(), now.getMonth());
+  const yearly = state.settings.period === 'year';
+  const per = yearly ? '/yr' : '/mo';
+  const k = yearly ? 12 : 1; // multiplier for per-month figures
+  const yr = R.annualTotals(entries, today);
+  const filtered = state.tags.length > 0;
 
   // Chart range
   let past = state.range;
@@ -225,6 +232,16 @@ function renderOverview() {
     insight.push(change('Income', first.income, last.income, true));
   }
 
+  // Biggest changes over the same period as the chart
+  const sinceISO = C.iso(C.addMonths(now, -(past - 1)));
+  const changes = currentIdx > 0 ? R.biggestChanges(entries, sinceISO, today, 6) : [];
+
+  // Budgets (this month, all entries) and until-payday — hidden while a tag filter is on
+  const budgets = filtered ? [] : (state.settings.budgets || [])
+    .map(b => R.budgetStatus(state.entries, b, now.getFullYear(), now.getMonth()))
+    .sort((a, b) => b.pct - a.pct);
+  const pd = filtered ? null : R.untilPayday(state.entries, today, state.settings.paydayId);
+
   // Manual payments to make (overdue + next 14 days)
   const pay = C.toPay(entries, today);
 
@@ -256,7 +273,8 @@ function renderOverview() {
   const cats = {};
   for (const e of entries) {
     if (e.type !== 'expense') continue;
-    const v = C.monthAmount(e, now.getFullYear(), now.getMonth());
+    // month: what this calendar month costs (incl. one-offs); year: 12 × today's monthly rate
+    const v = yearly ? 12 * R.monthlyAt(e, today) : C.monthAmount(e, now.getFullYear(), now.getMonth());
     if (v <= 0) continue;
     const keys = byTag ? (e.tags?.length ? e.tags.map(t => '#' + t) : ['Untagged']) : [e.category || 'Other'];
     for (const k of keys) cats[k] = (cats[k] || 0) + v;
@@ -284,14 +302,70 @@ function renderOverview() {
       </div></section>` : ''}
 
     <section class="card summary">
-      <div class="summary-head">${esc(monthLong.format(now))}</div>
-      <div class="summary-grid">
-        <div><span class="k">Income</span><span class="v pos">${money(cur.income)}</span></div>
-        <div><span class="k">Expenses</span><span class="v neg">${money(cur.expense)}</span></div>
-        <div class="net"><span class="k">${state.tags.length ? 'Net for these tags' : 'Left over'}</span><span class="v ${cur.net >= 0 ? 'pos' : 'neg'}">${money(cur.net)}</span></div>
+      <div class="summary-top">
+        <div class="summary-head">${yearly ? 'Per year at today’s rates' : esc(monthLong.format(now))}</div>
+        <div class="seg small">
+          <button data-action="period" data-period="month" class="${yearly ? '' : 'on'}">Month</button>
+          <button data-action="period" data-period="year" class="${yearly ? 'on' : ''}">Year</button>
+        </div>
       </div>
-      <p class="fine">Recurring items are spread evenly per month (e.g. yearly ÷ 12).</p>
+      ${(() => {
+        const t = yearly ? yr : cur;
+        return `<div class="summary-grid">
+        <div><span class="k">Income</span><span class="v pos">${money(t.income)}</span></div>
+        <div><span class="k">Expenses</span><span class="v neg">${money(t.expense)}</span></div>
+        <div class="net"><span class="k">${filtered ? 'Net for these tags' : 'Left over'}</span><span class="v ${t.net >= 0 ? 'pos' : 'neg'}">${money(t.net)}</span></div>
+      </div>`;
+      })()}
+      <p class="fine">${yearly
+        ? 'Everything running today × 12 (one-offs not included).'
+        : 'Recurring items are spread evenly per month (e.g. yearly ÷ 12).'}</p>
     </section>
+
+    ${budgets.length ? `<section class="card">
+      <div class="card-head"><h3>Budgets</h3><button class="link small-link" data-action="manage-budgets">Edit</button></div>
+      <p class="fine">This month</p>
+      <div class="cats">${budgets.map(s => `
+        <div class="cat">
+          <div class="cat-top"><span>${s.budget.kind === 'tag' ? '#' : ''}${esc(s.budget.label)}</span>
+            <span>${money(s.spent)} <span class="muted">of ${money(s.budget.amount)}</span></span></div>
+          <div class="bar ${s.over ? 'over' : s.near ? 'near' : ''}"><span style="width:${Math.min(100, s.pct * 100).toFixed(1)}%"></span></div>
+          <div class="cat-note ${s.over ? 'neg' : ''}">${s.over ? `Over by ${money(-s.left)}` : `${money(s.left)} left`}</div>
+        </div>`).join('')}
+      </div></section>` : ''}
+
+    ${pd ? (() => {
+      const bal = state.settings.balance;
+      const balAge = bal ? C.daysBetween(bal.date, today) : 0;
+      let running = bal ? bal.amount : 0;
+      const rows = pd.items.map(i => {
+        running += i.amount;
+        return `<div class="pd-row">
+          <span class="pd-date">${i.overdue ? '<span class="neg">Overdue</span>' : esc(dayShort.format(C.parse(i.date)))}</span>
+          <span class="pd-name">${esc(i.e.name)}</span>
+          <span class="pd-amt ${i.amount < 0 ? 'neg' : 'pos'}">${i.amount < 0 ? '−' : '+'}${i.e.variable ? '≈' : ''}${money(Math.abs(i.amount))}</span>
+          ${bal ? `<span class="pd-left ${running < 0 ? 'neg' : ''}">${money(running)}</span>` : ''}
+        </div>`;
+      }).join('');
+      const leftAtEnd = bal ? bal.amount + pd.net : null;
+      return `<section class="card">
+        <div class="card-head"><h3>Until payday</h3><span class="muted">${esc(pd.main.name)} · ${fmtDate(pd.payday)} · ${relDays(pd.days)}</span></div>
+        <label class="row static balance-row">
+          <div class="row-main"><div class="row-title">Balance now</div>
+            <div class="row-sub">${bal ? (balAge > 2 ? `entered ${relDays(-balAge)} — update it for accuracy` : `entered ${relDays(-balAge)}`) : 'Optional — see what’s left after each payment'}</div></div>
+          <input id="balance" inputmode="decimal" placeholder="0.00" value="${bal ? bal.amount.toFixed(2) : ''}" aria-label="Current balance">
+        </label>
+        <div class="pd-summary">
+          <div><span class="k">Going out</span><span class="v neg">${money(pd.out)}</span></div>
+          ${pd.in ? `<div><span class="k">Coming in</span><span class="v pos">${money(pd.in)}</span></div>` : ''}
+          ${bal ? `<div><span class="k">Left before payday</span><span class="v ${leftAtEnd < 0 ? 'neg' : 'pos'}">${money(leftAtEnd)}</span></div>` : ''}
+        </div>
+        ${pd.items.length ? `<details class="pd-details"${pd.items.length <= 5 ? ' open' : ''}>
+          <summary>${pd.items.length} payment${pd.items.length === 1 ? '' : 's'} before payday</summary>
+          <div class="pd-list">${rows}</div>
+        </details>` : '<p class="fine">Nothing due before payday.</p>'}
+      </section>`;
+    })() : ''}
 
     <section class="card">
       <div class="card-head">
@@ -306,6 +380,21 @@ function renderOverview() {
       <div class="readout" id="readout"></div>
       ${insight.length ? `<ul class="insight">${insight.join('')}</ul>` : ''}
     </section>
+
+    ${changes.length ? `<section class="card">
+      <div class="card-head"><h3>Biggest changes</h3><span class="muted">since ${monthYear.format(C.parse(sinceISO))}</span></div>
+      <div class="list">${changes.map(({ e, before, after, diff, kind }) => {
+        const good = e.type === 'income' ? diff > 0 : diff < 0;
+        const sub = kind === 'new' ? `New · ${money(after * k)}${per}`
+          : kind === 'ended' ? `Ended · was ${money(before * k)}${per}`
+          : `${money(before * k)} → ${money(after * k)}${per}`;
+        return `<button class="row" data-action="edit" data-id="${e.id}">
+          <div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub">${sub}</div></div>
+          <div class="row-amt ${good ? 'pos' : 'neg'}">${diff > 0 ? '+' : '−'}${money(Math.abs(diff) * k)}${per}</div>
+        </button>`;
+      }).join('')}</div>
+      <p class="fine">Change in ${yearly ? 'yearly' : 'monthly'} cost, your share. Green is good for you, red is not.</p>
+    </section>` : ''}
 
     ${contracts.length ? `<section class="card">
       <div class="card-head"><h3>Contracts</h3></div>
@@ -341,10 +430,10 @@ function renderOverview() {
           <button data-action="breakdown" data-by="category" class="${byTag ? '' : 'on'}">Category</button>
           <button data-action="breakdown" data-by="tag" class="${byTag ? 'on' : ''}">Tag</button>
         </div></div>
-      <p class="fine">This month${byTag ? ' · an entry with several tags counts towards each' : ''}</p>
+      <p class="fine">${yearly ? 'Per year at today’s rates' : 'This month'}${byTag ? ' · an entry with several tags counts towards each' : ''}</p>
       <div class="cats">${catList.map(([name, v]) => `
         <div class="cat">
-          <div class="cat-top"><span>${esc(name)}</span><span>${money(v)} <span class="muted">${Math.round((v / cur.expense) * 100)}%</span></span></div>
+          <div class="cat-top"><span>${esc(name)}</span><span>${money(v)} <span class="muted">${Math.round((v / (yearly ? yr.expense : cur.expense)) * 100)}%</span></span></div>
           <div class="bar"><span style="width:${((v / catMax) * 100).toFixed(1)}%"></span></div>
         </div>`).join('')}
       </div></section>` : ''}
@@ -374,6 +463,9 @@ function updateReadout(currentIdx) {
 // ----- Entries -----
 function renderEntries() {
   const today = C.todayISO();
+  const yearly = state.settings.period === 'year';
+  const per = yearly ? '/yr' : '/mo';
+  const k = yearly ? 12 : 1;
   const q = state.search.trim().toLowerCase();
   const list = tagFiltered()
     .filter(e => state.filter === 'all' || e.type === state.filter)
@@ -404,7 +496,9 @@ function renderEntries() {
     ].filter(Boolean).map(esc).join(' · ');
     const notes = [];
     if (e.share < 100) notes.push(`your ${e.share}% of ${money(full)}`);
-    if (!once && C.freqOn(e, today) !== 'monthly') notes.push(`≈ ${money(C.monthlyEquivalent(e))}/mo`);
+    const f = once ? 'once' : C.freqOn(e, today);
+    // show the per-month (or per-year) figure when it differs from the amount shown
+    if (!once && (yearly ? f !== 'yearly' : f !== 'monthly')) notes.push(`≈ ${money(C.monthlyEquivalent(e) * k)}${per}`);
     const tags = e.tags?.length
       ? `<div class="row-tags">${e.tags.map(t => `<span class="chip tiny">#${esc(t)}</span>`).join('')}</div>` : '';
     return `<button class="row" data-action="edit" data-id="${e.id}">
@@ -416,8 +510,8 @@ function renderEntries() {
     ? `<div class="group-title">${title}${extra}</div><section class="card list">${items.map(row).join('')}</section>` : '';
 
   const totals = state.filter === 'all'
-    ? ` <span class="muted">${money(totalMonthly('income') - totalMonthly('expense'))}/mo net</span>`
-    : ` <span class="muted">${money(totalMonthly(state.filter))}/mo</span>`;
+    ? ` <span class="muted">${money((totalMonthly('income') - totalMonthly('expense')) * k)}${per} net</span>`
+    : ` <span class="muted">${money(totalMonthly(state.filter) * k)}${per}</span>`;
 
   view.innerHTML = `
     <div class="toolbar">
@@ -458,6 +552,25 @@ async function renderSettings() {
         <div class="row-sub">Rename, merge or delete categories, payment methods and tags</div></div>
         <span class="chev" aria-hidden="true">›</span>
       </button>
+      <button class="row" data-action="manage-budgets">
+        <div class="row-main"><div class="row-title">Budgets</div>
+        <div class="row-sub">${(state.settings.budgets || []).length
+          ? `${state.settings.budgets.length} monthly limit${state.settings.budgets.length === 1 ? '' : 's'}`
+          : 'Set monthly limits for a category or tag'}</div></div>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
+      ${(() => {
+        const incomes = state.entries.filter(e => e.type === 'income' && e.frequency !== 'once' && !C.isEnded(e));
+        if (!incomes.length) return '';
+        return `<label class="row static">
+          <div class="row-main"><div class="row-title">Payday</div>
+          <div class="row-sub">Used for “Until payday” on the Overview</div></div>
+          <select id="payday">
+            <option value="">Biggest income</option>
+            ${incomes.map(e => `<option value="${e.id}" ${state.settings.paydayId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}
+          </select>
+        </label>`;
+      })()}
     </section>
 
     <div class="group-title">Backup &amp; iCloud</div>
@@ -469,6 +582,10 @@ async function renderSettings() {
       <button class="row" data-action="import">
         <div class="row-main"><div class="row-title accent">Import backup</div>
         <div class="row-sub">Merges a backup file into this device</div></div>
+      </button>
+      <button class="row" data-action="export-csv">
+        <div class="row-main"><div class="row-title accent">Export spreadsheet (CSV)</div>
+        <div class="row-sub">Entries, payments and monthly totals — opens in Excel or Numbers</div></div>
       </button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </section>
@@ -712,6 +829,98 @@ function openSheet(entry = null) {
   if (isNew) setTimeout(() => form.name.focus(), 350);
 }
 
+// ---------- Budgets sheet ----------
+let editingBudget = null;
+
+function openBudgets() {
+  const budgets = state.settings.budgets || [];
+  const now = new Date();
+  const b = editingBudget ? budgets.find(x => x.id === editingBudget) : null;
+  const kind = b?.kind || 'category';
+  sheet.innerHTML = `
+  <div id="budgets">
+    <div class="sheet-head"><span></span><h2>Budgets</h2>
+      <button type="button" class="link strong" data-close>Done</button></div>
+    <div class="sheet-body">
+      <p class="fine manage-help">A monthly limit for a category or a tag. The Overview shows how much of it this month uses,
+        and you'll get a warning when a change takes you over.</p>
+      ${budgets.length ? `<section class="card list">${budgets.map(x => {
+        const s = R.budgetStatus(state.entries, x, now.getFullYear(), now.getMonth());
+        return `<div class="row static label-row">
+          <div class="row-main"><div class="row-title">${x.kind === 'tag' ? '#' : ''}${esc(x.label)}</div>
+            <div class="row-sub ${s.over ? 'neg' : ''}">${money(x.amount)}/mo · ${money(s.spent)} this month</div></div>
+          <button type="button" class="btn small" data-edit-budget="${x.id}">Edit</button>
+          <button type="button" class="btn small danger" data-delete-budget="${x.id}">Delete</button>
+        </div>`;
+      }).join('')}</section>` : ''}
+
+      <div class="group-title">${b ? 'Edit budget' : 'Add a budget'}</div>
+      <form id="budgetForm" class="card form" novalidate>
+        <div class="field"><span>For</span>
+          <div class="seg small grow">
+            <label><input type="radio" name="kind" value="category" ${kind === 'category' ? 'checked' : ''}><span>Category</span></label>
+            <label><input type="radio" name="kind" value="tag" ${kind === 'tag' ? 'checked' : ''}><span>Tag</span></label>
+          </div></div>
+        <label class="field"><span>Name</span>
+          <input name="label" list="dl-budget" placeholder="e.g. Subscriptions" value="${esc(b?.label || '')}" autocomplete="off" autocapitalize="none"></label>
+        <label class="field"><span>Monthly limit</span>
+          <input name="amount" inputmode="decimal" placeholder="0.00" value="${b ? b.amount.toFixed(2) : ''}"></label>
+        <datalist id="dl-budget"></datalist>
+      </form>
+      <p class="form-error" id="budgetError" role="alert"></p>
+      <button type="button" class="btn primary" data-save-budget>${b ? 'Save budget' : 'Add budget'}</button>
+      ${b ? '<button type="button" class="btn" data-cancel-edit>Cancel editing</button>' : ''}
+    </div>
+  </div>`;
+
+  const root = $('#budgets');
+  const form = $('#budgetForm');
+  const syncList = () => {
+    const k = form.kind.value;
+    const opts = k === 'tag' ? allTags() : categoryOptions('expense');
+    $('#dl-budget').innerHTML = opts.map(o => `<option value="${esc(o)}">`).join('');
+    form.label.placeholder = k === 'tag' ? 'e.g. streaming' : 'e.g. Subscriptions';
+  };
+  syncList();
+  form.addEventListener('change', ev => { if (ev.target.name === 'kind') syncList(); });
+  form.addEventListener('submit', ev => ev.preventDefault());
+
+  root.addEventListener('click', async ev => {
+    const t = ev.target;
+    if (t.closest('[data-close]')) { editingBudget = null; return closeSheet(); }
+    const ed = t.closest('[data-edit-budget]');
+    const del = t.closest('[data-delete-budget]');
+    if (ed) { editingBudget = ed.dataset.editBudget; return openBudgets(); }
+    if (t.closest('[data-cancel-edit]')) { editingBudget = null; return openBudgets(); }
+    if (del) {
+      const x = budgets.find(y => y.id === del.dataset.deleteBudget);
+      if (!x || !confirm(`Delete the budget for “${x.label}”?`)) return;
+      state.settings.budgets = budgets.filter(y => y.id !== x.id);
+      await saveSettings();
+      toast('Budget deleted');
+      return openBudgets();
+    }
+    if (t.closest('[data-save-budget]')) {
+      const k = form.kind.value;
+      const label = k === 'tag' ? cleanTag(form.label.value) : canonicalLabel(form.label.value, categoryOptions('expense'));
+      const amount = C.parseAmount(form.amount.value);
+      const showErr = m => { $('#budgetError').textContent = m; };
+      if (!label) return showErr('Please choose a category or tag.');
+      if (!(amount > 0)) return showErr('Please enter a monthly limit.');
+      const dup = budgets.find(y => y.kind === k && y.label.toLowerCase() === label.toLowerCase() && y.id !== editingBudget);
+      if (dup) return showErr(`There's already a budget for “${dup.label}”.`);
+      const rec = { id: editingBudget || uid(), kind: k, label, amount: Math.round(amount * 100) / 100 };
+      state.settings.budgets = editingBudget ? budgets.map(y => (y.id === editingBudget ? rec : y)) : [...budgets, rec];
+      editingBudget = null;
+      await saveSettings();
+      toast('Budget saved');
+      openBudgets();
+    }
+  });
+
+  if (!sheet.open) { document.body.classList.add('modal-open'); sheet.showModal(); }
+}
+
 // ---------- Manage labels sheet ----------
 let manageKind = 'category';
 
@@ -889,8 +1098,16 @@ async function saveForm(form, existing) {
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   };
+  const before = state.entries;
   await db.putEntry(entry);
   closeSheet();
+  // Warn if this change pushed a budget over its limit this month
+  const after = await db.allEntries();
+  const now2 = new Date();
+  const over = R.newlyOver(before, after, state.settings.budgets || [], now2.getFullYear(), now2.getMonth());
+  if (over.length) {
+    setTimeout(() => toast(`Over your ${over[0].budget.kind === 'tag' ? '#' : ''}${over[0].budget.label} budget by ${money(-over[0].left)} this month`), 2600);
+  }
   await reload();
   toast(existing ? 'Saved' : 'Added');
 }
@@ -904,6 +1121,9 @@ async function deleteEntry(entry) {
 }
 
 // ---------- Backup ----------
+/** Phones/tablets get the share sheet (→ Save to Files / iCloud Drive); computers get a normal download. */
+const useShareSheet = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as a Mac
 async function exportBackup() {
   const payload = buildBackup(state.entries, state.settings);
   const name = `budget-backup-${C.todayISO()}.json`;
@@ -915,7 +1135,7 @@ async function exportBackup() {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   };
   try {
-    if (navigator.canShare?.({ files: [file] })) {
+    if (useShareSheet() && navigator.canShare?.({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: name });
       } catch (e) {
@@ -935,6 +1155,32 @@ async function exportBackup() {
   toast('Backup created');
 }
 
+/** Three CSV files for Excel / Numbers: entries, logged payments, and monthly totals (2 years + forecast). */
+async function exportCSV() {
+  if (!state.entries.length) { toast('Nothing to export yet'); return; }
+  const today = C.todayISO();
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - 23, 1);
+  const files = [
+    ['budget-entries', R.entriesRows(state.entries, today)],
+    ['budget-payments', R.paymentsRows(state.entries)],
+    ['budget-monthly-totals', R.monthlyRows(state.entries, start.getFullYear(), start.getMonth(), 24 + FORECAST_MONTHS)],
+  ].map(([name, rows]) => new File([R.toCSV(rows)], `${name}-${today}.csv`, { type: 'text/csv' }));
+
+  const downloadAll = () => files.forEach((f, i) => setTimeout(() => {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(f), download: f.name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, i * 300));
+
+  if (useShareSheet() && navigator.canShare?.({ files })) {
+    try { await navigator.share({ files, title: 'Budget spreadsheets' }); }
+    catch (e) { if (e.name !== 'AbortError') downloadAll(); }
+  } else {
+    downloadAll();
+  }
+}
+
 async function importBackup(file) {
   try {
     let data;
@@ -943,7 +1189,12 @@ async function importBackup(file) {
     const skipNote = skipped ? `\n\n${skipped} damaged entr${skipped === 1 ? 'y' : 'ies'} will be skipped.` : '';
     if (!confirm(`Import ${valid.length} entries? Entries already on this device with the same ID will be replaced.${skipNote}`)) return;
     await db.putEntries(valid);
-    if (settings.currency && !state.entries.length) { state.settings.currency = settings.currency; fmtCache.clear(); await saveSettings(); }
+    if (settings.currency && !state.entries.length) { state.settings.currency = settings.currency; fmtCache.clear(); }
+    // Add any budgets from the backup that this device doesn't have yet
+    const have = new Set((state.settings.budgets || []).map(b => `${b.kind}:${b.label.toLowerCase()}`));
+    const extra = (settings.budgets || []).filter(b => !have.has(`${b.kind}:${b.label.toLowerCase()}`));
+    if (extra.length) state.settings.budgets = [...(state.settings.budgets || []), ...extra];
+    await saveSettings();
     await reload();
     toast(`Imported ${valid.length} entries`);
   } catch (e) {
@@ -1023,7 +1274,19 @@ function sampleEntries() {
 // ---------- Global events ----------
 const actions = {
   add: () => openSheet(),
-  sample: async () => { await db.putEntries(sampleEntries()); await reload(); toast('Sample data added — erase it any time in Settings'); },
+  sample: async () => {
+    await db.putEntries(sampleEntries());
+    if (!state.settings.budgets?.length) {
+      state.settings.budgets = [
+        { id: uid(), kind: 'category', label: 'Subscriptions', amount: 40 },
+        { id: uid(), kind: 'category', label: 'Groceries', amount: 380 },
+        { id: uid(), kind: 'tag', label: 'shared', amount: 1000 },
+      ];
+      await saveSettings();
+    }
+    await reload();
+    toast('Sample data added — erase it any time in Settings');
+  },
   edit: t => openSheet(state.entries.find(e => e.id === t.dataset.id)),
   range: t => { state.range = t.dataset.range === 'all' ? 'all' : Number(t.dataset.range); state.sel = null; render(); },
   filter: t => { state.filter = t.dataset.filter; render(); },
@@ -1035,6 +1298,9 @@ const actions = {
     render();
   },
   'manage-labels': () => openManage('category'),
+  'manage-budgets': () => { editingBudget = null; openBudgets(); },
+  period: async t => { state.settings.period = t.dataset.period; await saveSettings(); render(); },
+  'export-csv': exportCSV,
   'mark-paid': async t => {
     const e = state.entries.find(x => x.id === t.dataset.id);
     const due = t.dataset.due;
@@ -1062,7 +1328,7 @@ const actions = {
     if (!confirm('Erase ALL entries on this device? Export a backup first if you might need them.')) return;
     if (!confirm('Are you sure? This cannot be undone.')) return;
     await db.clearEntries();
-    state.settings.lastBackup = null;
+    Object.assign(state.settings, { lastBackup: null, budgets: [], balance: null, paydayId: null });
     await saveSettings();
     await reload();
     toast('All data erased');
@@ -1087,6 +1353,16 @@ view.addEventListener('change', async ev => {
     fmtCache.clear();
     await saveSettings();
     toast(`Currency set to ${ev.target.value}`);
+  } else if (ev.target.id === 'balance') {
+    const v = ev.target.value.trim();
+    const amount = C.parseAmount(v);
+    state.settings.balance = v && Number.isFinite(amount) ? { amount, date: C.todayISO() } : null;
+    await saveSettings();
+    render();
+  } else if (ev.target.id === 'payday') {
+    state.settings.paydayId = ev.target.value || null;
+    await saveSettings();
+    toast('Payday updated');
   } else if (ev.target.id === 'importFile' && ev.target.files[0]) {
     await importBackup(ev.target.files[0]);
     ev.target.value = '';

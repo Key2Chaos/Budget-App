@@ -1,0 +1,106 @@
+{
+  "app": "budget-pwa",
+  "version": 2,
+  "exportedAt": "2026-11-21T20:00:00.000Z",
+  "settings": {
+    "currency": "GBP",
+    "lastBackup": "2026-11-21T20:00:00.000Z",
+    "budgets": [
+      { "id": "b1", "kind": "category", "label": "Subscriptions", "amount": 30 },
+      { "id": "b2", "kind": "tag", "label": "streaming", "amount": 20 }
+    ]
+  },
+  "entries": [
+    {
+      "id": "e5f6a7b8-0005-4000-8000-000000000001",
+      "type": "income",
+      "name": "Salary",
+      "category": "Salary",
+      "method": "Bank transfer",
+      "frequency": "monthly",
+      "startDate": "2025-01-25",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "", "tags": [],
+      "prices": [
+        { "from": "2025-01-25", "amount": 2500, "frequency": "monthly" },
+        { "from": "2026-04-25", "amount": 2700, "frequency": "monthly" }
+      ],
+      "variable": false, "manual": false, "share": 100, "noticeDays": null, "payments": [],
+      "createdAt": "2026-11-21T19:00:00.000Z", "updatedAt": "2026-11-21T19:00:00.000Z"
+    },
+    {
+      "id": "e5f6a7b8-0005-4000-8000-000000000002",
+      "type": "expense",
+      "name": "Netflix",
+      "category": "Subscriptions",
+      "method": "Credit card",
+      "frequency": "monthly",
+      "startDate": "2025-01-04",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "", "tags": ["streaming"],
+      "prices": [
+        { "from": "2025-01-04", "amount": 10.99, "frequency": "monthly" },
+        { "from": "2026-03-04", "amount": 12.99, "frequency": "monthly" }
+      ],
+      "variable": false, "manual": false, "share": 100, "noticeDays": null, "payments": [],
+      "createdAt": "2026-11-21T19:00:00.000Z", "updatedAt": "2026-11-21T19:00:00.000Z"
+    },
+    {
+      "id": "e5f6a7b8-0005-4000-8000-000000000003",
+      "type": "expense",
+      "name": "Disney+",
+      "category": "Subscriptions",
+      "method": "Credit card",
+      "frequency": "yearly",
+      "startDate": "2026-02-10",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "Started this year", "tags": ["streaming"],
+      "prices": [{ "from": "2026-02-10", "amount": 89.9, "frequency": "yearly" }],
+      "variable": false, "manual": false, "share": 100, "noticeDays": null, "payments": [],
+      "createdAt": "2026-11-21T19:00:00.000Z", "updatedAt": "2026-11-21T19:00:00.000Z"
+    },
+    {
+      "id": "e5f6a7b8-0005-4000-8000-000000000004",
+      "type": "expense",
+      "name": "Gym",
+      "category": "Health",
+      "method": "Debit card",
+      "frequency": "monthly",
+      "startDate": "2025-01-05",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": "2026-05-05",
+      "notes": "Cancelled", "tags": [],
+      "prices": [{ "from": "2025-01-05", "amount": 35, "frequency": "monthly" }],
+      "variable": false, "manual": false, "share": 100, "noticeDays": null, "payments": [],
+      "createdAt": "2026-11-21T19:00:00.000Z", "updatedAt": "2026-11-21T19:00:00.000Z"
+    },
+    {
+      "id": "e5f6a7b8-0005-4000-8000-000000000005",
+      "type": "expense",
+      "name": "Rent",
+      "category": "Housing",
+      "method": "Standing order",
+      "frequency": "monthly",
+      "startDate": "2025-01-01",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "", "tags": ["shared"],
+      "prices": [{ "from": "2025-01-01", "amount": 1400, "frequency": "monthly" }],
+      "variable": false, "manual": false, "share": 50, "noticeDays": null, "payments": [],
+      "createdAt": "2026-11-21T19:00:00.000Z", "updatedAt": "2026-11-21T19:00:00.000Z"
+    },
+    {
+      "id": "e5f6a7b8-0005-4000-8000-000000000006",
+      "type": "expense",
+      "name": "Cleaner, \"weekly\"",
+      "category": "Housing",
+      "method": "Cash",
+      "frequency": "weekly",
+      "startDate": "2026-10-02",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "=SUM(A1) should stay text", "tags": [],
+      "prices": [{ "from": "2026-10-02", "amount": 25, "frequency": "weekly" }],
+      "variable": false, "manual": true, "share": 100, "noticeDays": null,
+      "payments": [{ "id": "p1", "date": "2026-11-13", "amount": 25, "due": "2026-11-13", "note": "" }],
+      "createdAt": "2026-11-21T19:00:00.000Z", "updatedAt": "2026-11-21T19:00:00.000Z"
+    }
+  ]
+}

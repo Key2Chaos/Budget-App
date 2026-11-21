@@ -33,6 +33,18 @@ No backend, no account. All data lives on the device in IndexedDB.
   filter. Picking several shows entries with *all* of them. The filter applies to the Overview totals,
   chart, contracts and upcoming payments as well as the Entries list. The "Where it goes" breakdown
   can group by tag, and search matches `#tag`.
+- **Month / Year switch**: see totals, "Where it goes", biggest changes and the Entries list per
+  month or per year. The yearly figures are at today's rates: everything running today × 12.
+- **Biggest changes**: the bills whose cost changed most over the chart's period, including new and
+  ended ones.
+- **Budgets** (Settings → Budgets): a monthly limit for a category or a tag. The Overview shows
+  progress bars, amber from 90% and red when over. Saving an entry that pushes a budget over, or
+  further over, shows a warning. Budgets are included in backups.
+- **Until payday**: everything due before your next pay. Optionally enter your current balance to
+  see what's left after each payment. Overdue manual payments are included. Choose which income is
+  your payday in Settings.
+- **Spreadsheet export** (Settings → Export spreadsheet): three CSV files (entries, payments and
+  monthly totals) for Excel or Numbers.
 - **Backup**: export to the iOS share sheet, then "Save to Files" → iCloud Drive. Import merges a
   backup file back in.
 - Works offline, supports dark mode, and respects the iPhone notch and home-indicator areas.
@@ -159,6 +171,7 @@ ask for the history to be rewritten if you also want it gone from old commits.
 | `js/chart.js` | Dependency-free SVG chart |
 | `js/db.js` | IndexedDB wrapper |
 | `js/schema.js` | Backup format version, migrations, validation |
+| `js/reports.js` | Biggest changes, yearly totals, budgets, until payday, CSV export |
 | `tests/` | `run.mjs` test suite + `fixtures/` (sample backups from every format) |
 | `sw.js` | Offline cache |
 | `tools/make_icons.py` | Regenerates the PNG icons |

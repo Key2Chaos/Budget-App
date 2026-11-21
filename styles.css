@@ -329,6 +329,35 @@ form.is-once .recurring-only { display: none; }
 .row-main.plain { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .pay-item .btn.small { flex: none; }
 
+/* ---------- Summary toggle, budgets, payday ---------- */
+.summary-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px; }
+.summary-top .summary-head { padding: 0; }
+.seg.small label { padding: 4px 9px; font-size: 13px; }
+.seg.grow { flex: 1; }
+.small-link { font-size: 15px; padding: 0; }
+.bar.near span { background: var(--warn); }
+.bar.over span { background: var(--neg); }
+.cat-note { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.cat-note.neg { color: var(--neg); font-weight: 600; }
+.balance-row input {
+  flex: 0 0 7.5em; border: 0; border-radius: 8px; background: var(--fill);
+  padding: 8px 10px; text-align: right; font-size: 16px; font-weight: 600; outline: none;
+}
+.pd-summary { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 4px 16px 8px; border-top: 0.5px solid var(--line); }
+.pd-summary div { display: flex; flex-direction: column; }
+.pd-summary .k { font-size: 13px; color: var(--muted); }
+.pd-summary .v { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pd-details { padding: 0 16px 12px; }
+.pd-details summary { cursor: pointer; color: var(--accent); font-size: 15px; padding: 6px 0; }
+.pd-row {
+  display: grid; grid-template-columns: 4.2em 1fr auto auto; gap: 10px; align-items: baseline;
+  padding: 6px 0; border-top: 0.5px solid var(--line); font-size: 15px; font-variant-numeric: tabular-nums;
+}
+.pd-date { color: var(--muted); font-size: 13px; }
+.pd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-amt { font-weight: 600; }
+.pd-left { color: var(--muted); font-size: 13px; min-width: 5em; text-align: right; }
+
 /* ---------- Manage labels ---------- */
 .chev { color: var(--muted); font-size: 22px; line-height: 1; }
 .manage-help { margin: 12px 4px 14px; }

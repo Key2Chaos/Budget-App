@@ -123,10 +123,30 @@ function normalizePayments(list) {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** Monthly spending limits: { id, kind: 'category' | 'tag', label, amount }. (Added Nov 2026, optional.) */
+export function normalizeBudgets(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  list.forEach((b, i) => {
+    if (!b || typeof b !== 'object') return;
+    const kind = b.kind === 'tag' ? 'tag' : 'category';
+    const label = kind === 'tag' ? cleanTag(b.label) : cleanLabel(b.label);
+    const amount = typeof b.amount === 'string' ? parseFloat(b.amount) : Number(b.amount);
+    const key = `${kind}:${label.toLowerCase()}`;
+    if (!label || !(amount > 0) || seen.has(key)) return;
+    seen.add(key);
+    out.push({ ...b, id: str(b.id) || `b${i}-${key}`, kind, label, amount: Math.round(amount * 100) / 100 });
+  });
+  return out;
+}
+
 function normalizeSettings(raw) {
   const out = {};
   if (raw && /^[A-Z]{3}$/.test(raw.currency)) out.currency = raw.currency;
   if (raw && str(raw.lastBackup)) out.lastBackup = raw.lastBackup;
+  const budgets = normalizeBudgets(raw?.budgets);
+  if (budgets.length) out.budgets = budgets;
   return out;
 }
 
