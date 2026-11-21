@@ -27,15 +27,27 @@ export function addMonths(date, n) {
   return d;
 }
 
-export const sortedPrices = e => [...(e.prices || [])].sort((a, b) => a.from.localeCompare(b.from));
+/**
+ * An entry's history is a list of periods: { from, amount, frequency }.
+ * Each change of price and/or frequency starts a new period. (Stored as `prices` for history reasons.)
+ */
+export const sortedPrices = e => [...(e.prices || [])]
+  .sort((a, b) => a.from.localeCompare(b.from))
+  .map(p => ({ ...p, frequency: e.frequency === 'once' ? 'once' : (p.frequency || e.frequency) }));
 
-/** Amount charged per payment on a given date (latest price change on or before it). */
-export function priceOn(e, dateISO) {
-  const prices = sortedPrices(e);
-  let cur = prices[0];
-  for (const p of prices) { if (p.from <= dateISO) cur = p; else break; }
-  return cur ? cur.amount : 0;
+/** The period in force on a given date (latest change on or before it; the first one before the start). */
+export function periodOn(e, dateISO) {
+  const periods = sortedPrices(e);
+  let cur = periods[0];
+  for (const p of periods) { if (p.from <= dateISO) cur = p; else break; }
+  return cur;
 }
+
+/** Amount charged per payment on a given date. */
+export const priceOn = (e, dateISO) => periodOn(e, dateISO)?.amount ?? 0;
+
+/** How often it's paid on a given date. */
+export const freqOn = (e, dateISO = todayISO()) => periodOn(e, dateISO)?.frequency || e.frequency;
 
 export const currentPrice = e => priceOn(e, todayISO());
 
@@ -46,8 +58,11 @@ export const isEnded = (e, onISO = todayISO()) =>
   e.frequency === 'once' ? false : !!(stopDate(e) && stopDate(e) < onISO);
 
 /** Normalised monthly amount (e.g. yearly / 12, weekly * 52 / 12). */
-export const monthlyEquivalent = (e, onISO = todayISO()) =>
-  e.frequency === 'once' ? 0 : priceOn(e, onISO) * FREQ[e.frequency].perMonth;
+export function monthlyEquivalent(e, onISO = todayISO()) {
+  if (e.frequency === 'once') return 0;
+  const p = periodOn(e, onISO);
+  return p.amount * FREQ[p.frequency].perMonth;
+}
 
 /** Contribution of one entry to a calendar month (y, m0 = 0-based month). */
 export function monthAmount(e, y, m0) {
@@ -59,7 +74,7 @@ export function monthAmount(e, y, m0) {
   const stop = stopDate(e);
   if (e.startDate > end || (stop && stop < start)) return 0;
   const ref = stop && stop < end ? stop : end;
-  return priceOn(e, ref) * FREQ[e.frequency].perMonth;
+  return monthlyEquivalent(e, ref);
 }
 
 export function monthTotals(entries, y, m0) {
@@ -81,16 +96,14 @@ export function series(entries, y, m0, count) {
   return out;
 }
 
-/** Next payment date on or after fromISO, or null if none. */
-export function nextDue(e, fromISO = todayISO()) {
-  if (e.frequency === 'once') return e.startDate >= fromISO ? e.startDate : null;
-  const f = FREQ[e.frequency];
-  const start = parse(e.startDate);
+/** First date on or after fromISO in a schedule that started on anchorISO. */
+function nextOnSchedule(anchorISO, frequency, fromISO) {
+  const f = FREQ[frequency];
+  const start = parse(anchorISO);
   const from = parse(fromISO);
+  if (from <= start) return anchorISO;
   let d;
-  if (from <= start) {
-    d = start;
-  } else if (f.days) {
+  if (f.days) {
     const k = Math.ceil(Math.round((from - start) / 864e5) / f.days);
     d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + k * f.days);
   } else {
@@ -99,7 +112,30 @@ export function nextDue(e, fromISO = todayISO()) {
     d = addMonths(start, k);
     while (d < from) { k += f.months; d = addMonths(start, k); }
   }
-  const s = iso(d);
+  return iso(d);
+}
+
+/**
+ * Payment schedules: consecutive periods with the same frequency share one schedule, so a
+ * price-only change keeps the usual payment day. A frequency change starts a new schedule on its date.
+ */
+function schedules(e) {
+  const out = [];
+  for (const p of sortedPrices(e)) {
+    if (!out.length || out.at(-1).frequency !== p.frequency) out.push({ from: p.from, frequency: p.frequency });
+  }
+  if (out.length) out[0].from = e.startDate;
+  return out;
+}
+
+/** Next payment date on or after fromISO, or null if none. */
+export function nextDue(e, fromISO = todayISO()) {
+  if (e.frequency === 'once') return e.startDate >= fromISO ? e.startDate : null;
+  const segs = schedules(e);
+  let i = 0;
+  while (i + 1 < segs.length && segs[i + 1].from <= fromISO) i++;
+  let s = nextOnSchedule(segs[i].from, segs[i].frequency, fromISO);
+  if (segs[i + 1] && s >= segs[i + 1].from) s = segs[i + 1].from;
   const stop = stopDate(e);
   return stop && s > stop ? null : s;
 }

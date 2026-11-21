@@ -68,6 +68,58 @@ test('initial-release backup: known values', () => {
   assert.deepEqual(by('Salary').tags, []);                    // pre-tags data gets an empty list
 });
 
+test('v1 → v2: every price period gets the entry’s frequency', () => {
+  const raw = load('v1-2026-11-initial-release.json');
+  const { entries } = migrateBackup(raw);
+  for (const e of entries) {
+    const orig = raw.entries.find(r => r.id === e.id);
+    assert.equal(e.frequency, orig.frequency, `${e.name}: frequency unchanged`);
+    for (const p of e.prices) assert.equal(p.frequency, orig.frequency, `${e.name}: period frequency`);
+  }
+});
+
+test('frequency changes: amounts and payment dates follow the history', () => {
+  const { entries } = migrateBackup(load('v2-2026-11-frequency-changes.json'));
+  const by = n => entries.find(e => e.name === n);
+
+  const car = by('Car insurance');                 // £600 yearly → £55 monthly from 1 Mar 2026
+  assert.equal(C.freqOn(car, '2026-02-15'), 'yearly');
+  assert.equal(C.freqOn(car, '2026-03-01'), 'monthly');
+  assert.equal(C.monthAmount(car, 2026, 1), 50);   // Feb 2026: 600 / 12
+  assert.equal(C.monthAmount(car, 2026, 3), 55);   // Apr 2026: 55 monthly
+  assert.equal(C.nextDue(car, '2025-03-02'), '2026-03-01'); // next yearly date = start of monthly plan
+  assert.equal(C.nextDue(car, '2026-03-02'), '2026-04-01');
+
+  const cleaner = by('Cleaner');                   // weekly → fortnightly (1 Sep 2025) → price rise
+  assert.equal(C.nextDue(cleaner, '2025-01-07'), '2025-01-13');  // weekly from Mon 6 Jan
+  assert.equal(C.nextDue(cleaner, '2025-08-30'), '2025-09-01');  // switch date wins over next weekly
+  assert.equal(C.nextDue(cleaner, '2025-09-02'), '2025-09-15');  // fortnightly from 1 Sep
+  assert.equal(C.nextDue(cleaner, '2026-04-02'), '2026-04-13');  // price rise keeps the fortnightly rhythm (…30 Mar, 13 Apr)
+  assert.ok(Math.abs(C.monthAmount(cleaner, 2025, 5) - 40 * 52 / 12) < 1e-9);
+  assert.ok(Math.abs(C.monthAmount(cleaner, 2026, 5) - 45 * 26 / 12) < 1e-9);
+
+  const stream = by('Streaming bundle');           // price-only change on the 1st; still paid on the 4th
+  assert.equal(C.nextDue(stream, '2026-06-02'), '2026-06-04');
+  assert.equal(C.priceOn(stream, '2026-06-04'), 17.99);
+
+  const once = by('Concert tickets');
+  assert.equal(C.monthAmount(once, 2026, 6), 120);
+});
+
+test('one-off entries always use "once" for every period', () => {
+  const e = normalizeEntry({ id: 'o', name: 'Gift', frequency: 'once', startDate: '2026-01-01',
+    prices: [{ from: '2026-01-01', amount: 5, frequency: 'monthly' }, { from: '2026-02-01', amount: 6 }] });
+  assert.ok(e.prices.every(p => p.frequency === 'once'));
+  assert.equal(e.frequency, 'once');
+});
+
+test('invalid period frequency inherits the previous one', () => {
+  const e = normalizeEntry({ id: 'i', name: 'X', frequency: 'monthly', startDate: '2026-01-01',
+    prices: [{ from: '2026-01-01', amount: 5, frequency: 'yearly' }, { from: '2026-05-01', amount: 6, frequency: 'bogus' }] });
+  assert.deepEqual(e.prices.map(p => p.frequency), ['yearly', 'yearly']);
+  assert.equal(e.frequency, 'yearly');
+});
+
 // ---------- Robustness ----------
 
 test('rejects files that are not backups', () => {

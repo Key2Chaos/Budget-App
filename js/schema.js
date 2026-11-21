@@ -9,12 +9,19 @@
 import { FREQ } from './calc.js';
 
 export const APP_ID = 'budget-pwa';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** MIGRATIONS[n] upgrades a backup object from version n to n + 1. */
 const MIGRATIONS = {
-  // Example for the future:
-  // 1: data => ({ ...data, version: 2, entries: data.entries.map(e => ({ ...e, newField: 'default' })) }),
+  // v1 → v2 (Nov 2026): frequency moved from the entry onto each price period, so a bill can
+  // change e.g. from yearly to monthly without rewriting its history.
+  1: data => ({
+    ...data,
+    version: 2,
+    entries: data.entries.map(e => (e && typeof e === 'object' && Array.isArray(e.prices)
+      ? { ...e, prices: e.prices.map(p => (p && typeof p === 'object' ? { ...p, frequency: e.frequency } : p)) }
+      : e)),
+  }),
 };
 
 const str = v => (typeof v === 'string' ? v : '');
@@ -38,14 +45,25 @@ export function normalizeTags(list) {
 export function normalizeEntry(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const prices = (Array.isArray(raw.prices) ? raw.prices : [])
-    .map(p => ({ from: str(p?.from), amount: typeof p?.amount === 'string' ? parseFloat(p.amount) : Number(p?.amount) }))
+    .map(p => ({
+      from: str(p?.from),
+      amount: typeof p?.amount === 'string' ? parseFloat(p.amount) : Number(p?.amount),
+      frequency: str(p?.frequency),
+    }))
     .filter(p => isDate(p.from) && Number.isFinite(p.amount) && p.amount >= 0)
     .sort((a, b) => a.from.localeCompare(b.from));
   if (raw.id == null || raw.id === '' || !str(raw.name).trim() || !isDate(raw.startDate) || !FREQ[raw.frequency] || !prices.length) {
     return null;
   }
-  prices[0] = { ...prices[0], from: raw.startDate }; // first price always applies from the start
+  prices[0] = { ...prices[0], from: raw.startDate }; // first period always applies from the start
   const once = raw.frequency === 'once';
+  // Every period gets a valid frequency: one-offs are always 'once'; a recurring period with a
+  // missing/invalid one inherits the previous period's (or the entry's).
+  let prev = once ? 'once' : raw.frequency;
+  for (const p of prices) {
+    p.frequency = once ? 'once' : (FREQ[p.frequency] && p.frequency !== 'once' ? p.frequency : prev);
+    prev = p.frequency;
+  }
   const now = new Date().toISOString();
   return {
     ...raw,
@@ -54,7 +72,7 @@ export function normalizeEntry(raw) {
     name: str(raw.name).trim(),
     category: str(raw.category).trim(),
     method: str(raw.method).trim(),
-    frequency: raw.frequency,
+    frequency: once ? 'once' : prices.at(-1).frequency, // latest period's; per-date logic uses the periods
     startDate: raw.startDate,
     contractEnd: !once && isDate(raw.contractEnd) ? raw.contractEnd : null,
     endsAtExpiry: !once && !!raw.endsAtExpiry,

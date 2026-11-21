@@ -272,12 +272,14 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .field.toggle input:checked { background: var(--pos); }
 .field.toggle input:checked::after { transform: translateX(20px); }
 
-.price-row { gap: 8px; }
-.price-row input[name=pfrom] { flex: 1.2; text-align: left; justify-content: flex-start; }
+.price-row { flex-direction: column; align-items: stretch; gap: 2px; padding-top: 8px; padding-bottom: 8px; }
+.pr-top, .pr-bottom { display: flex; align-items: center; gap: 10px; min-height: 34px; }
+.pr-label, .pfrom-start { color: var(--muted); font-size: 14px; }
+.pfrom-start { flex: 1; }
+.price-row input[name=pfrom] { flex: 1; text-align: left; justify-content: flex-start; }
 .price-row input[name=pfrom]::-webkit-date-and-time-value { text-align: left; }
-.price-row input[name=pamount] { flex: 1; }
-.pfrom-start { flex: 1.2; color: var(--muted); min-width: 0 !important; }
-.pbtn-spacer { width: 28px; flex: none; min-width: 0 !important; }
+.price-row input[name=pamount] { flex: 1; text-align: left; font-weight: 600; }
+.price-row select[name=pfreq] { flex: none; direction: ltr; text-align: right; }
 .add-price { display: block; margin: -8px 16px 16px; font-size: 15px; }
 .form-error { color: var(--neg); font-weight: 500; margin: 0 16px; min-height: 0; }
 .form-error:empty { display: none; }

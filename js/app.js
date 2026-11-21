@@ -1,7 +1,7 @@
 import { db } from './db.js';
 import * as C from './calc.js';
 import { buildChart } from './chart.js';
-import { APP_ID, SCHEMA_VERSION, normalizeTags, migrateBackup, buildBackup } from './schema.js';
+import { APP_ID, SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry, normalizeTags } from './schema.js';
 
 // ---------- Constants ----------
 const CATEGORIES = {
@@ -325,10 +325,10 @@ function renderEntries() {
     const sub = [
       e.category,
       e.method,
-      e.frequency === 'once' ? fmtDate(e.startDate) : C.FREQ[e.frequency].label,
+      e.frequency === 'once' ? fmtDate(e.startDate) : C.FREQ[C.freqOn(e, today)].label,
       C.isEnded(e, today) ? `Ended ${fmtDate(C.stopDate(e))}` : (e.frequency !== 'once' && due ? `Next ${fmtDate(due)}` : null),
     ].filter(Boolean).map(esc).join(' · ');
-    const perMonth = e.frequency !== 'once' && e.frequency !== 'monthly'
+    const perMonth = e.frequency !== 'once' && C.freqOn(e, today) !== 'monthly'
       ? `<small>≈ ${money(C.monthlyEquivalent(e))}/mo</small>` : '';
     const tags = e.tags?.length
       ? `<div class="row-tags">${e.tags.map(t => `<span class="chip tiny">#${esc(t)}</span>`).join('')}</div>` : '';
@@ -415,19 +415,29 @@ async function renderSettings() {
 // ---------- Entry sheet ----------
 const sheet = $('#sheet');
 
+/** One row of an entry's history: date (or "From the start"), amount and how often. */
 function priceRow(p, first) {
+  const opts = Object.entries(C.FREQ)
+    .filter(([k]) => first || k !== 'once') // only the first row can be a one-off
+    .map(([k, f]) => `<option value="${k}" ${p.frequency === k ? 'selected' : ''}>${f.label}</option>`).join('');
   return `<div class="field price-row">
-    ${first ? '<span class="pfrom-start">From start</span><input type="hidden" name="pfrom" value="">'
-            : `<input type="date" name="pfrom" value="${esc(p.from)}" aria-label="Price changed on">`}
-    <input name="pamount" inputmode="decimal" placeholder="0.00" value="${p.amount ?? ''}" aria-label="Amount">
-    ${first ? '<span class="pbtn-spacer"></span>' : '<button type="button" class="icon-btn small" data-remove-price aria-label="Remove">−</button>'}
+    <div class="pr-top">
+      ${first ? '<span class="pfrom-start">From the start</span><input type="hidden" name="pfrom" value="">'
+              : `<span class="pr-label">From</span><input type="date" name="pfrom" value="${esc(p.from)}" aria-label="Change starts on">`}
+      ${first ? '' : '<button type="button" class="icon-btn small" data-remove-price aria-label="Remove this change">−</button>'}
+    </div>
+    <div class="pr-bottom">
+      <input name="pamount" inputmode="decimal" placeholder="0.00" value="${p.amount ?? ''}" aria-label="Amount">
+      <select name="pfreq" aria-label="How often">${opts}</select>
+    </div>
   </div>`;
 }
 
 function openSheet(entry = null) {
   const isNew = !entry;
   const e = entry || { type: 'expense', frequency: 'monthly', startDate: C.todayISO(), prices: [{ from: C.todayISO(), amount: '' }] };
-  const prices = C.sortedPrices(e);
+  const all = C.sortedPrices(e);
+  const prices = e.frequency === 'once' ? all.slice(0, 1) : all; // a one-off only ever uses its first amount
 
   sheet.innerHTML = `
   <form id="entryForm" novalidate>
@@ -447,17 +457,19 @@ function openSheet(entry = null) {
           <input name="name" placeholder="e.g. Netflix, Rent, Salary" value="${esc(e.name)}" autocomplete="off" enterkeyhint="next"></label>
         ${isNew ? `<label class="field"><span>Amount</span>
           <input name="amount" inputmode="decimal" placeholder="0.00" value="" enterkeyhint="done"></label>` : ''}
-        <label class="field"><span>How often</span>
+        ${isNew ? `<label class="field"><span>How often</span>
           <select name="frequency">${Object.entries(C.FREQ).map(([k, f]) =>
-            `<option value="${k}" ${e.frequency === k ? 'selected' : ''}>${f.label}</option>`).join('')}</select></label>
+            `<option value="${k}" ${e.frequency === k ? 'selected' : ''}>${f.label}</option>`).join('')}</select></label>` : ''}
         <label class="field"><span class="lbl-start">First payment</span>
           <input type="date" name="startDate" value="${esc(e.startDate)}"></label>
       </section>
 
       ${isNew ? '' : `
-      <div class="group-title">Price history <span class="muted">— add a change when the price goes up or down</span></div>
+      <div class="group-title">Amount &amp; frequency history</div>
       <section class="card form" id="prices">${prices.map((p, i) => priceRow(p, i === 0)).join('')}</section>
-      <button type="button" class="link add-price" data-add-price>+ Add price change</button>`}
+      <p class="fine pad-x recurring-only">Add a change when the price goes up or down, or you switch how often you pay
+        (e.g. yearly → monthly). For a frequency change, use the date of the first payment on the new schedule.</p>
+      <button type="button" class="link add-price recurring-only" data-add-price>+ Add change</button>`}
 
       <section class="card form">
         <label class="field"><span>Category</span>
@@ -504,8 +516,10 @@ function openSheet(entry = null) {
     $('#dl-cat').innerHTML = [...new Set([...CATEGORIES[type], ...used])].map(c => `<option value="${esc(c)}">`).join('');
     form.classList.toggle('is-income', type === 'income');
   };
+  // New entries pick frequency at the top; existing ones in the first history row.
+  const freqSelect = () => form.querySelector('select[name=frequency]') || form.querySelector('select[name=pfreq]');
   const syncFreq = () => {
-    const once = form.frequency.value === 'once';
+    const once = freqSelect().value === 'once';
     form.classList.toggle('is-once', once);
     $('.lbl-start', form).textContent = once ? 'Date' : (form.type.value === 'income' ? 'First received' : 'First payment');
   };
@@ -546,7 +560,7 @@ function openSheet(entry = null) {
 
   form.addEventListener('change', ev => {
     if (ev.target.name === 'type') { syncType(); syncFreq(); }
-    if (ev.target.name === 'frequency') syncFreq();
+    if (ev.target.name === 'frequency' || ev.target.name === 'pfreq') syncFreq();
   });
   form.addEventListener('click', ev => {
     const rm = ev.target.closest('[data-remove-tag]');
@@ -555,7 +569,9 @@ function openSheet(entry = null) {
     else if (add) { tagInput.value = ''; addTags([add.dataset.addTag]); }
     else if (ev.target.closest('[data-close]')) closeSheet();
     else if (ev.target.closest('[data-add-price]')) {
-      $('#prices', form).insertAdjacentHTML('beforeend', priceRow({ from: C.todayISO(), amount: '' }, false));
+      const freqs = [...form.querySelectorAll('select[name=pfreq]')].map(s => s.value).filter(v => v !== 'once');
+      const lastFreq = freqs.at(-1) || 'monthly';
+      $('#prices', form).insertAdjacentHTML('beforeend', priceRow({ from: C.todayISO(), amount: '', frequency: lastFreq }, false));
       $('#prices .price-row:last-child input[name=pamount]', form).focus();
     } else if (ev.target.closest('[data-remove-price]')) ev.target.closest('.price-row').remove();
     else if (ev.target.closest('[data-delete]')) deleteEntry(entry);
@@ -584,15 +600,20 @@ async function saveForm(form, existing) {
   if (existing) {
     const froms = [...form.querySelectorAll('[name=pfrom]')].map(i => i.value);
     const amounts = [...form.querySelectorAll('[name=pamount]')].map(i => C.parseAmount(i.value));
-    prices = froms.map((from, i) => ({ from: i === 0 ? f.startDate : from, amount: amounts[i] }));
-    if (prices.some(p => !p.from)) return err('Each price change needs a date.');
-    if (prices.slice(1).some(p => p.from <= f.startDate)) return err('Price changes must be after the first payment date.');
+    const freqs = [...form.querySelectorAll('[name=pfreq]')].map(s => s.value);
+    prices = froms.map((from, i) => ({ from: i === 0 ? f.startDate : from, amount: amounts[i], frequency: freqs[i] }));
+    if (prices.some(p => !p.from)) return err('Each change needs a date.');
+    if (prices.slice(1).some(p => p.from <= f.startDate)) return err('Changes must be after the first payment date.');
+    if (new Set(prices.map(p => p.from)).size !== prices.length) return err('Two changes can’t start on the same date.');
+    if (freqs[0] === 'once' && prices.length > 1) return err('A one-off payment can’t have later changes — remove them, or choose how often it repeats.');
   } else {
-    prices = [{ from: f.startDate, amount: C.parseAmount(f.amount) }];
+    prices = [{ from: f.startDate, amount: C.parseAmount(f.amount), frequency: f.frequency }];
   }
   if (prices.some(p => !(p.amount >= 0))) return err('Please enter a valid amount.');
+  prices.sort((a, b) => a.from.localeCompare(b.from));
 
-  const once = f.frequency === 'once';
+  const once = prices[0].frequency === 'once';
+  const frequency = once ? 'once' : prices.at(-1).frequency;
   if (!once && f.contractEnd && f.contractEnd < f.startDate) return err('Contract end can’t be before the first payment.');
   if (!once && f.endDate && f.endDate < f.startDate) return err('Cancelled date can’t be before the first payment.');
 
@@ -603,14 +624,14 @@ async function saveForm(form, existing) {
     name,
     category: (f.category || '').trim(),
     method: (f.method || '').trim(),
-    frequency: f.frequency,
+    frequency,
     startDate: f.startDate,
     contractEnd: once ? null : f.contractEnd || null,
     endsAtExpiry: !once && !!f.endsAtExpiry,
     endDate: once ? null : f.endDate || null,
     notes: (f.notes || '').trim(),
     tags: (form._commitTags(), form._getTags()),
-    prices: prices.sort((a, b) => a.from.localeCompare(b.from)),
+    prices,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   };
@@ -696,7 +717,9 @@ function sampleEntries() {
     mk({ type: 'expense', name: 'Gym', category: 'Health', method: 'Debit card', frequency: 'monthly', startDate: m(-15, 5),
          endDate: m(-4, 5), prices: [{ from: m(-15, 5), amount: 35 }] }),
     mk({ type: 'expense', name: 'Car insurance', category: 'Insurance', method: 'Credit card', frequency: 'yearly', startDate: m(-21, 18),
-         prices: [{ from: m(-21, 18), amount: 540 }, { from: m(-9, 18), amount: 612 }] }),
+         notes: 'Switched from paying yearly to monthly',
+         prices: [{ from: m(-21, 18), amount: 540 }, { from: m(-9, 18), amount: 612 },
+                  { from: m(-3, 18), amount: 56, frequency: 'monthly' }] }),
     mk({ type: 'expense', name: 'Groceries', category: 'Groceries', method: 'Debit card', frequency: 'weekly', startDate: m(-26, 2),
          prices: [{ from: m(-26, 2), amount: 70 }, { from: m(-11, 2), amount: 82 }] }),
     mk({ type: 'expense', name: 'Savings', category: 'Savings', method: 'Standing order', frequency: 'monthly', startDate: m(-6, 1),
@@ -709,7 +732,7 @@ function sampleEntries() {
       'Netflix': ['shared', 'streaming'], 'Spotify': ['streaming'], 'Car insurance': ['essential', 'car'],
       'Groceries': ['shared', 'essential'],
     }[e.name] || [];
-    return e;
+    return normalizeEntry(e); // fills each period's frequency, sets current frequency
   });
 }
 

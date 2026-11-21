@@ -1,0 +1,106 @@
+{
+  "app": "budget-pwa",
+  "version": 2,
+  "exportedAt": "2026-11-21T15:00:00.000Z",
+  "settings": {
+    "currency": "EUR",
+    "lastBackup": "2026-11-21T15:00:00.000Z"
+  },
+  "entries": [
+    {
+      "id": "c3d4e5f6-0003-4000-8000-000000000001",
+      "type": "expense",
+      "name": "Car insurance",
+      "category": "Insurance",
+      "method": "Credit card",
+      "frequency": "monthly",
+      "startDate": "2025-03-01",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "Switched from yearly to monthly",
+      "tags": ["car", "essential"],
+      "prices": [
+        { "from": "2025-03-01", "amount": 600, "frequency": "yearly" },
+        { "from": "2026-03-01", "amount": 55, "frequency": "monthly" }
+      ],
+      "createdAt": "2026-11-21T14:00:00.000Z",
+      "updatedAt": "2026-11-21T14:00:00.000Z"
+    },
+    {
+      "id": "c3d4e5f6-0003-4000-8000-000000000002",
+      "type": "expense",
+      "name": "Cleaner",
+      "category": "Housing",
+      "method": "Bank transfer",
+      "frequency": "fortnightly",
+      "startDate": "2025-01-06",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "Weekly, then fortnightly, with a price rise",
+      "tags": ["shared"],
+      "prices": [
+        { "from": "2025-01-06", "amount": 40, "frequency": "weekly" },
+        { "from": "2025-09-01", "amount": 40, "frequency": "fortnightly" },
+        { "from": "2026-04-01", "amount": 45, "frequency": "fortnightly" }
+      ],
+      "createdAt": "2026-11-21T14:00:00.000Z",
+      "updatedAt": "2026-11-21T14:00:00.000Z"
+    },
+    {
+      "id": "c3d4e5f6-0003-4000-8000-000000000003",
+      "type": "expense",
+      "name": "Streaming bundle",
+      "category": "Subscriptions",
+      "method": "Apple Pay",
+      "frequency": "monthly",
+      "startDate": "2025-02-04",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "Price rise only: still paid on the 4th",
+      "tags": [],
+      "prices": [
+        { "from": "2025-02-04", "amount": 14.99, "frequency": "monthly" },
+        { "from": "2026-06-01", "amount": 17.99, "frequency": "monthly" }
+      ],
+      "createdAt": "2026-11-21T14:00:00.000Z",
+      "updatedAt": "2026-11-21T14:00:00.000Z"
+    },
+    {
+      "id": "c3d4e5f6-0003-4000-8000-000000000004",
+      "type": "income",
+      "name": "Salary",
+      "category": "Salary",
+      "method": "Bank transfer",
+      "frequency": "monthly",
+      "startDate": "2025-01-28",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "tags": ["work"],
+      "prices": [{ "from": "2025-01-28", "amount": 3100, "frequency": "monthly" }],
+      "createdAt": "2026-11-21T14:00:00.000Z",
+      "updatedAt": "2026-11-21T14:00:00.000Z"
+    },
+    {
+      "id": "c3d4e5f6-0003-4000-8000-000000000005",
+      "type": "expense",
+      "name": "Concert tickets",
+      "category": "Entertainment",
+      "method": "Credit card",
+      "frequency": "once",
+      "startDate": "2026-07-19",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "tags": [],
+      "prices": [{ "from": "2026-07-19", "amount": 120, "frequency": "once" }],
+      "createdAt": "2026-11-21T14:00:00.000Z",
+      "updatedAt": "2026-11-21T14:00:00.000Z"
+    }
+  ]
+}

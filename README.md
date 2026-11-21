@@ -10,8 +10,11 @@ No backend, no account. All data lives on the device in IndexedDB.
 - **Contract end date** (optional), with a reminder on the Overview 60 days before it ends. You can
   choose whether payments stop at the end date or roll over. Entries that have rolled over show as
   "out of contract" so you know to look for a better deal.
-- **Price history**: add a price change when a bill goes up or down. The history chart uses the price
-  that applied in each month, so it shows how your budget really changed.
+- **Amount & frequency history**: add a change when a bill goes up or down, or when you switch how
+  often you pay (e.g. yearly → monthly). Each change stores its own amount and frequency, so the
+  chart shows what really applied in each month.
+  - A price-only change keeps the usual payment day.
+  - A frequency change starts a new schedule from its date.
 - **Overview**: this month's income, spending and what's left over. Also a chart over 6M, 1Y, 2Y or
   All with a 3-month forecast (tap or drag to read any month), payments due in the next 14 days, and
   spending by category.
