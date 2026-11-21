@@ -170,6 +170,31 @@ test('notice period moves the deadline earlier', () => {
   assert.equal(C.noticeBy(entries.find(e => e.name === 'Rent')), null);
 });
 
+test('varying bills: estimate comes from payments; amounts can be blank', () => {
+  const { entries } = migrateBackup(load('v3-2026-11-varying-no-amount.json'));
+  const by = n => entries.find(e => e.name === n);
+  assert.equal(by('Electricity').prices[0].amount, null);           // blank amount kept as blank
+  assert.equal(C.estimateOn(by('Electricity'), '2026-11-21'), 90);    // average of 80, 100, 90
+  // switched quarterly → monthly with no amount: last three quarterly bills (avg 300) ≈ 100/month
+  assert.equal(C.estimateOn(by('Water'), '2026-02-01'), 100);
+  assert.equal(C.estimateOn(by('Water'), '2024-12-01'), 0);           // before anything was logged
+  assert.equal(C.estimateOn(by('Gas (just added)'), '2026-11-21'), 0); // nothing yet → shown as "Varies"
+  assert.equal(C.monthAmount(by('Gas (just added)'), 2026, 11), 0);
+  assert.equal(C.estimateOn(by('Phone usage'), '2026-11-21'), 45);    // typed estimate used until payments exist
+});
+
+test('a blank amount is only allowed on varying bills', () => {
+  const base = { id: 'x', name: 'X', frequency: 'monthly', startDate: '2026-01-01', prices: [{ from: '2026-01-01', amount: null }] };
+  assert.equal(normalizeEntry(base), null);                                // fixed bill with no amount → unusable
+  assert.equal(normalizeEntry({ ...base, variable: true }).prices[0].amount, null);
+});
+
+test('older app data is not affected by blank-amount support', () => {
+  for (const f of fixtures.filter(f => !f.startsWith('v3-'))) {
+    for (const e of migrateBackup(load(f)).entries) assert.ok(e.prices.every(p => typeof p.amount === 'number'));
+  }
+});
+
 test('one-off entries always use "once" for every period', () => {
   const e = normalizeEntry({ id: 'o', name: 'Gift', frequency: 'once', startDate: '2026-01-01',
     prices: [{ from: '2026-01-01', amount: 5, frequency: 'monthly' }, { from: '2026-02-01', amount: 6 }] });

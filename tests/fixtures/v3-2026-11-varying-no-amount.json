@@ -1,0 +1,77 @@
+{
+  "app": "budget-pwa",
+  "version": 3,
+  "exportedAt": "2026-11-21T22:00:00.000Z",
+  "settings": { "currency": "GBP", "lastBackup": "2026-11-21T22:00:00.000Z" },
+  "entries": [
+    {
+      "id": "f6a7b8c9-0006-4000-8000-000000000001",
+      "type": "expense",
+      "name": "Electricity",
+      "category": "Utilities",
+      "method": "Direct debit",
+      "frequency": "monthly",
+      "startDate": "2026-01-05",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "No amount typed — estimate comes from payments", "tags": [],
+      "prices": [{ "from": "2026-01-05", "amount": null, "frequency": "monthly" }],
+      "variable": true, "manual": false, "share": 100, "noticeDays": null,
+      "payments": [
+        { "id": "a1", "date": "2026-02-05", "amount": 80, "due": null, "note": "" },
+        { "id": "a2", "date": "2026-03-05", "amount": 100, "due": null, "note": "" },
+        { "id": "a3", "date": "2026-04-05", "amount": 90, "due": null, "note": "" }
+      ],
+      "createdAt": "2026-11-21T21:00:00.000Z", "updatedAt": "2026-11-21T21:00:00.000Z"
+    },
+    {
+      "id": "f6a7b8c9-0006-4000-8000-000000000002",
+      "type": "expense",
+      "name": "Water",
+      "category": "Utilities",
+      "method": "Direct debit",
+      "frequency": "monthly",
+      "startDate": "2025-01-10",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "Quarterly bills, then switched to monthly with no amount typed", "tags": [],
+      "prices": [
+        { "from": "2025-01-10", "amount": null, "frequency": "quarterly" },
+        { "from": "2026-01-10", "amount": null, "frequency": "monthly" }
+      ],
+      "variable": true, "manual": false, "share": 100, "noticeDays": null,
+      "payments": [
+        { "id": "w1", "date": "2025-04-10", "amount": 300, "due": null, "note": "" },
+        { "id": "w2", "date": "2025-07-10", "amount": 270, "due": null, "note": "" },
+        { "id": "w3", "date": "2025-10-10", "amount": 330, "due": null, "note": "" }
+      ],
+      "createdAt": "2026-11-21T21:00:00.000Z", "updatedAt": "2026-11-21T21:00:00.000Z"
+    },
+    {
+      "id": "f6a7b8c9-0006-4000-8000-000000000003",
+      "type": "expense",
+      "name": "Gas (just added)",
+      "category": "Utilities",
+      "method": "Direct debit",
+      "frequency": "quarterly",
+      "startDate": "2026-11-01",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "Nothing logged and no estimate yet", "tags": [],
+      "prices": [{ "from": "2026-11-01", "amount": null, "frequency": "quarterly" }],
+      "variable": true, "manual": false, "share": 100, "noticeDays": null, "payments": [],
+      "createdAt": "2026-11-21T21:00:00.000Z", "updatedAt": "2026-11-21T21:00:00.000Z"
+    },
+    {
+      "id": "f6a7b8c9-0006-4000-8000-000000000004",
+      "type": "expense",
+      "name": "Phone usage",
+      "category": "Phone & Internet",
+      "method": "Direct debit",
+      "frequency": "monthly",
+      "startDate": "2026-09-15",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "Estimate typed, nothing logged yet", "tags": [],
+      "prices": [{ "from": "2026-09-15", "amount": 45, "frequency": "monthly" }],
+      "variable": true, "manual": false, "share": 100, "noticeDays": null, "payments": [],
+      "createdAt": "2026-11-21T21:00:00.000Z", "updatedAt": "2026-11-21T21:00:00.000Z"
+    }
+  ]
+}

@@ -86,7 +86,9 @@ function money(n, opts = {}) {
 /** Expected amount for one payment on a date — your share, using the estimate for varying bills. */
 const dueAmount = (e, dateISO) => C.shareOf(e) * C.estimateOn(e, dateISO);
 /** "−£12.99" / "+£2,950.00", with "≈" when the amount varies. */
-const signed = (e, n) => `${e.type === 'income' ? '+' : '−'}${e.variable ? '≈' : ''}${money(Math.abs(n))}`;
+const signed = (e, n) => (e.variable && Math.abs(n) < 0.005
+  ? 'Varies' // no estimate yet — nothing logged
+  : `${e.type === 'income' ? '+' : '−'}${e.variable ? '≈' : ''}${money(Math.abs(n))}`);
 const compactMoney = n => money(n, { notation: 'compact', maximumFractionDigits: 1 });
 
 const monthShort = new Intl.DateTimeFormat(undefined, { month: 'short' });
@@ -498,7 +500,7 @@ function renderEntries() {
     if (e.share < 100) notes.push(`your ${e.share}% of ${money(full)}`);
     const f = once ? 'once' : C.freqOn(e, today);
     // show the per-month (or per-year) figure when it differs from the amount shown
-    if (!once && (yearly ? f !== 'yearly' : f !== 'monthly')) notes.push(`≈ ${money(C.monthlyEquivalent(e) * k)}${per}`);
+    if (!once && C.monthlyEquivalent(e) > 0 && (yearly ? f !== 'yearly' : f !== 'monthly')) notes.push(`≈ ${money(C.monthlyEquivalent(e) * k)}${per}`);
     const tags = e.tags?.length
       ? `<div class="row-tags">${e.tags.map(t => `<span class="chip tiny">#${esc(t)}</span>`).join('')}</div>` : '';
     return `<button class="row" data-action="edit" data-id="${e.id}">
@@ -666,7 +668,7 @@ function openSheet(entry = null) {
       <section class="card form">
         <label class="field"><span>Name</span>
           <input name="name" placeholder="e.g. Netflix, Rent, Salary" value="${esc(e.name)}" autocomplete="off" enterkeyhint="next"></label>
-        ${isNew ? `<label class="field"><span>Amount</span>
+        ${isNew ? `<label class="field"><span class="lbl-amount">Amount</span>
           <input name="amount" inputmode="decimal" placeholder="0.00" value="" enterkeyhint="done"></label>` : ''}
         ${isNew ? `<label class="field"><span>How often</span>
           <select name="frequency">${Object.entries(C.FREQ).map(([k, f]) =>
@@ -676,10 +678,21 @@ function openSheet(entry = null) {
       </section>
 
       ${isNew ? '' : `
-      <div class="group-title">Amount &amp; frequency history</div>
+      <div class="group-title"><span class="fixed-only">Amount &amp; frequency history</span><span class="variable-only">Frequency history</span></div>
       <section class="card form" id="prices">${prices.map((p, i) => priceRow(p, i === 0)).join('')}</section>
-      <p class="fine pad-x recurring-only">Add a change when the price goes up or down, or you switch how often you pay
+      <p class="fine pad-x recurring-only fixed-only">Add a change when the price goes up or down, or you switch how often you pay
         (e.g. yearly → monthly). For a frequency change, use the date of the first payment on the new schedule.</p>
+      <p class="fine pad-x variable-only">${(() => {
+        // worked out as a varying bill, so it's right even if the switch is only just being turned on
+        const est = C.estimateOn({ ...e, variable: true }, C.todayISO());
+        const logged = (e.payments || []).filter(p => p.amount > 0).length;
+        const now = est <= 0 ? 'No estimate yet. Log a payment below to set one.'
+          : `Current estimate: <strong>≈${money(est)}</strong> per payment — ${logged
+            ? 'worked out from your logged payments (average of the latest three).'
+            : 'the amount entered earlier, until you log payments.'}`;
+        return `${now}
+          Amounts come from the payments you log; add a change here only when how often you pay changes.`;
+      })()}</p>
       <button type="button" class="link add-price recurring-only" data-add-price>+ Add change</button>`}
 
       <div class="group-title">How it's paid</div>
@@ -691,14 +704,13 @@ function openSheet(entry = null) {
         <label class="field"><span>Your share</span>
           <input name="share" inputmode="decimal" value="${e.share ?? 100}" aria-label="Your share in percent"><i class="suffix">%</i></label>
       </section>
-      <p class="fine pad-x"><strong>Amount varies</strong>: the amount is an estimate (e.g. utilities). Log real payments and
-        the estimate follows your last three. <strong>Manual</strong>: it appears under “To pay” with a Mark paid button.
+      <p class="fine pad-x"><strong>Amount varies</strong> (e.g. utilities): no fixed amount needed — log real payments
+        and the estimate is the average of your latest three. <strong>Manual</strong>: it appears under “To pay” with a Mark paid button.
         <strong>Your share</strong>: for split bills, only your part counts in the budget.</p>
 
-      ${isNew ? '' : `
       <div class="group-title">Payments made</div>
       <section class="card form" id="payments">${C.paymentsOf(e).reverse().map(payRow).join('')}</section>
-      <button type="button" class="link add-price" data-add-payment>+ Log payment</button>`}
+      <button type="button" class="link add-price" data-add-payment>+ Log payment</button>
 
       <section class="card form">
         <label class="field"><span>Category</span>
@@ -754,8 +766,17 @@ function openSheet(entry = null) {
     form.classList.toggle('is-once', once);
     $('.lbl-start', form).textContent = once ? 'Date' : (form.type.value === 'income' ? 'First received' : 'First payment');
   };
+  // "Amount varies": amounts come from logged payments, so they're optional / hidden in the history
+  const syncVariable = () => {
+    const v = form.variable.checked;
+    form.classList.toggle('is-variable', v);
+    if (form.amount) {
+      $('.lbl-amount', form).textContent = v ? 'Estimate' : 'Amount';
+      form.amount.placeholder = v ? 'Optional' : '0.00';
+    }
+  };
   $('#dl-method').innerHTML = methodOptions().map(c => `<option value="${esc(c)}">`).join('');
-  syncType(); syncFreq();
+  syncType(); syncFreq(); syncVariable();
 
   // Tag editor
   let tags = normalizeTags(e.tags);
@@ -793,6 +814,7 @@ function openSheet(entry = null) {
   form.addEventListener('change', ev => {
     if (ev.target.name === 'type') { syncType(); syncFreq(); }
     if (ev.target.name === 'frequency' || ev.target.name === 'pfreq') syncFreq();
+    if (ev.target.name === 'variable') syncVariable();
   });
   form.addEventListener('click', ev => {
     const rm = ev.target.closest('[data-remove-tag]');
@@ -807,7 +829,7 @@ function openSheet(entry = null) {
       $('#prices .price-row:last-child input[name=pamount]', form).focus();
     } else if (ev.target.closest('[data-remove-price]')) ev.target.closest('.price-row').remove();
     else if (ev.target.closest('[data-add-payment]')) {
-      const est = C.estimateOn(entry, C.todayISO());
+      const est = entry ? C.estimateOn(entry, C.todayISO()) : C.parseAmount(form.amount?.value) || 0;
       $('#payments', form).insertAdjacentHTML('afterbegin',
         payRow({ date: C.todayISO(), amount: est ? Math.round(est * 100) / 100 : '' }));
       $('#payments .pay-row input[name=payamount]', form).select();
@@ -1033,11 +1055,14 @@ async function saveForm(form, existing) {
   const name = (f.name || '').trim();
   if (!name) return err('Please enter a name.');
   if (!f.startDate) return err('Please choose a date.');
+  const variable = !!f.variable;
+  // Varying bills may leave amounts blank — the estimate then comes from logged payments
+  const amountOf = raw => (variable && !String(raw ?? '').trim() ? null : C.parseAmount(raw));
 
   let prices;
   if (existing) {
     const froms = [...form.querySelectorAll('[name=pfrom]')].map(i => i.value);
-    const amounts = [...form.querySelectorAll('[name=pamount]')].map(i => C.parseAmount(i.value));
+    const amounts = [...form.querySelectorAll('[name=pamount]')].map(i => amountOf(i.value));
     const freqs = [...form.querySelectorAll('[name=pfreq]')].map(s => s.value);
     prices = froms.map((from, i) => ({ from: i === 0 ? f.startDate : from, amount: amounts[i], frequency: freqs[i] }));
     if (prices.some(p => !p.from)) return err('Each change needs a date.');
@@ -1045,9 +1070,11 @@ async function saveForm(form, existing) {
     if (new Set(prices.map(p => p.from)).size !== prices.length) return err('Two changes can’t start on the same date.');
     if (freqs[0] === 'once' && prices.length > 1) return err('A one-off payment can’t have later changes — remove them, or choose how often it repeats.');
   } else {
-    prices = [{ from: f.startDate, amount: C.parseAmount(f.amount), frequency: f.frequency }];
+    prices = [{ from: f.startDate, amount: amountOf(f.amount), frequency: f.frequency }];
   }
-  if (prices.some(p => !(p.amount >= 0))) return err('Please enter a valid amount.');
+  if (prices.some(p => !(p.amount === null || p.amount >= 0))) {
+    return err(variable ? 'That estimate doesn’t look like an amount.' : 'Please enter a valid amount (or switch on “Amount varies”).');
+  }
   prices.sort((a, b) => a.from.localeCompare(b.from));
 
   const once = prices[0].frequency === 'once';
@@ -1094,7 +1121,7 @@ async function saveForm(form, existing) {
     manual: !!f.manual,
     share: share >= 100 ? 100 : share,
     noticeDays: once || !noticeDays ? null : noticeDays,
-    payments: existing ? payments : [],
+    payments,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   };

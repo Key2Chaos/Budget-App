@@ -18,7 +18,11 @@ No backend, no account. All data lives on the device in IndexedDB.
 - **Bills that vary** (utilities, water): switch on *Amount varies*, then log real payments.
   - Each payment is spread over the period it covers, so a quarterly bill is spread across three
     months.
-  - Months without a logged payment use an estimate: the average of your last three bills.
+  - You don't need to enter an amount. The history then shows only dates and frequency, and the
+    estimate is the average of your last three bills. You can type an optional estimate to use until
+    the first payment is logged. After a frequency change, earlier payments are converted to the new
+    frequency, e.g. quarterly £300 becomes about £100 a month.
+  - Months without a logged payment use that estimate.
   - Refunds can be logged as **Credit**.
 - **Manual payments** (cash, bank transfer): switch on *Manual payment*. They appear under **To
   pay** on the Overview with a **Mark paid** button. Missed ones show as overdue.

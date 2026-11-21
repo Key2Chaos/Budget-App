@@ -316,6 +316,18 @@ form.is-once .recurring-only { display: none; }
 .tag-suggest:empty { display: none; }
 .tag-suggest .chip { font-size: 13px; padding: 4px 10px; color: var(--accent); }
 
+/* ---------- Amount varies: amounts come from the payment log ---------- */
+.variable-only { display: none; }
+form.is-variable .variable-only { display: revert; }
+form.is-variable .fixed-only { display: none; }
+form.is-variable #prices input[name=pamount] { display: none; }
+/* one line per row: [From date ……] [Frequency] [−] */
+form.is-variable #prices .price-row { flex-direction: row; align-items: center; gap: 10px; }
+form.is-variable #prices .pr-top, form.is-variable #prices .pr-bottom { display: contents; }
+form.is-variable #prices input[name=pfrom], form.is-variable #prices .pfrom-start { flex: 1; min-width: 0; }
+form.is-variable #prices select[name=pfreq] { order: 3; }
+form.is-variable #prices .icon-btn { order: 4; flex: none; }
+
 /* ---------- Payments ---------- */
 .suffix { font-style: normal; color: var(--muted); flex: none; margin-left: -6px; }
 .pay-row { gap: 8px; }

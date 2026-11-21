@@ -44,7 +44,7 @@ export function periodOn(e, dateISO) {
 }
 
 /** Amount charged per payment on a given date. */
-export const priceOn = (e, dateISO) => periodOn(e, dateISO)?.amount ?? 0;
+export const priceOn = (e, dateISO) => periodOn(e, dateISO)?.amount ?? 0; // blank estimate (varying bill) → 0
 
 /** How often it's paid on a given date. */
 export const freqOn = (e, dateISO = todayISO()) => periodOn(e, dateISO)?.frequency || e.frequency;
@@ -71,9 +71,21 @@ export const paymentsOf = e => [...(e.payments || [])].sort(byDate);
 export function estimateOn(e, dateISO = todayISO()) {
   const p = periodOn(e, dateISO);
   if (!p) return 0;
-  if (!e.variable) return p.amount;
-  const recent = paymentsOf(e).filter(x => x.date <= dateISO && x.date >= p.from && x.amount > 0).slice(-3);
-  return recent.length ? recent.reduce((s, x) => s + x.amount, 0) / recent.length : p.amount;
+  if (!e.variable) return p.amount ?? 0;
+  const avg = list => list.reduce((s, x) => s + x.amount, 0) / list.length;
+  const before = paymentsOf(e).filter(x => x.date <= dateISO && x.amount > 0);
+  // 1. last three payments on the current plan
+  const inPeriod = before.filter(x => x.date >= p.from).slice(-3);
+  if (inPeriod.length) return avg(inPeriod);
+  // 2. an estimate typed in for this period
+  if (p.amount != null) return p.amount;
+  // 3. earlier payments, converted to this period's frequency via their monthly rate
+  const recent = before.slice(-3);
+  if (!recent.length) return 0;
+  const perMonth = FREQ[p.frequency].perMonth;
+  if (!perMonth) return avg(recent);
+  const monthly = recent.reduce((s, x) => s + x.amount * FREQ[freqOn(e, x.date)].perMonth, 0) / recent.length;
+  return monthly / perMonth;
 }
 
 /** Planned monthly amount on a date (full bill). */

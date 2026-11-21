@@ -9,7 +9,7 @@
 import { FREQ } from './calc.js';
 
 export const APP_ID = 'budget-pwa';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** MIGRATIONS[n] upgrades a backup object from version n to n + 1. */
 const MIGRATIONS = {
@@ -22,6 +22,10 @@ const MIGRATIONS = {
       ? { ...e, prices: e.prices.map(p => (p && typeof p === 'object' ? { ...p, frequency: e.frequency } : p)) }
       : e)),
   }),
+  // v2 → v3 (Nov 2026): a price period's amount may now be null for "amount varies" bills (the
+  // estimate comes from logged payments). Nothing to convert — the bump only stops older app
+  // versions, which would drop such entries, from importing v3 backups.
+  2: data => ({ ...data, version: 3 }),
 };
 
 const str = v => (typeof v === 'string' ? v : '');
@@ -56,10 +60,12 @@ export function normalizeEntry(raw) {
   const prices = (Array.isArray(raw.prices) ? raw.prices : [])
     .map(p => ({
       from: str(p?.from),
-      amount: typeof p?.amount === 'string' ? parseFloat(p.amount) : Number(p?.amount),
+      amount: p?.amount == null || p.amount === '' ? null
+        : typeof p.amount === 'string' ? parseFloat(p.amount) : Number(p.amount),
       frequency: str(p?.frequency),
     }))
-    .filter(p => isDate(p.from) && Number.isFinite(p.amount) && p.amount >= 0)
+    // a blank amount is only allowed on "amount varies" bills (the estimate comes from payments)
+    .filter(p => isDate(p.from) && (p.amount === null ? !!raw.variable : Number.isFinite(p.amount) && p.amount >= 0))
     .sort((a, b) => a.from.localeCompare(b.from));
   if (raw.id == null || raw.id === '' || !str(raw.name).trim() || !isDate(raw.startDate) || !FREQ[raw.frequency] || !prices.length) {
     return null;
