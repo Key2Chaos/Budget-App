@@ -312,7 +312,7 @@ export const matchedOn = m => [m.name && 'name', m.amount && 'amount', m.date &&
 
 /**
  * Suggest an action for each transaction: a remembered rule, else the best-scoring entry (≥ 4).
- * rules: { [payeeKey]: entryId | 'ignore' }
+ * rules: { [payeeKey]: entryId | 'ignore' | 'transfer' }
  * names: { [payeeKey]: the user's own name for that payee } — added to each transaction as `name`.
  */
 export function suggest(txns, entries, rules = {}, names = {}) {
@@ -321,7 +321,7 @@ export function suggest(txns, entries, rules = {}, names = {}) {
     const name = names[t0.payee] ?? names[t0.oldPayee] ?? null;
     const t = name ? { ...t0, name } : t0;
     const rule = rules[t.payee] ?? rules[t.oldPayee];
-    if (rule === 'ignore') return { ...t, action: 'ignore', why: 'rule' };
+    if (rule === 'ignore' || rule === 'transfer') return { ...t, action: rule, why: 'rule' };
     if (rule && byId.has(rule)) return { ...t, action: rule, why: 'rule' };
     let best = null, bestM = null;
     for (const e of entries) {
@@ -406,4 +406,89 @@ export function findRecurring(txns) {
     });
   }
   return out.sort((a, b) => b.txns.length - a.txns.length);
+}
+
+// ---------- Transfers between your own accounts ----------
+
+/**
+ * Bank text that's almost always money moving between your own accounts: paying off a credit card,
+ * or a transfer to or from a savings account. Plain "Transfer to xx9876 …" isn't enough on its own:
+ * that's also how rent or a payment to a friend looks.
+ */
+const TRANSFER_TEXT = [
+  /\bPAYMENT RECEIVED\b/, /\bPAYMENT\W+THANK ?YOU\b/, /\bINTERNAL TRANSFER\b/,
+  /\b(CREDIT ?CARD|CARD) (RE)?PAYMENT\b/,
+  /\b(TRANSFER|TFR|XFER)\b.*\b(SAVINGS?|SAVER|CREDIT ?CARD|OFFSET|EVERYDAY)\b/,
+];
+export const looksLikeTransfer = description => {
+  const s = String(description).toUpperCase();
+  return TRANSFER_TEXT.some(r => r.test(s));
+};
+
+/** How far apart the two sides of a transfer can be (a card payment can take a few days to arrive). */
+export const TRANSFER_DAYS = 3;
+
+/**
+ * Pair transactions with the other side of a transfer in another of your accounts: the same amount
+ * the other way, within TRANSFER_DAYS. others: [{ id, account, date, amount (bank sign) }], e.g.
+ * transactions already imported into another account's catch-all entry. Each one pairs at most once,
+ * nearest date first. Returns Map txnId → other.
+ */
+export function findTransfers(txns, others, account) {
+  const acc = String(account).toLowerCase();
+  const pairs = [];
+  for (const t of txns) {
+    for (const o of others) {
+      if (String(o.account).toLowerCase() === acc) continue;
+      if (Math.abs(o.amount + t.amount) >= 0.005) continue;
+      const days = Math.abs(C.daysBetween(o.date, t.date));
+      if (days <= TRANSFER_DAYS) pairs.push({ t, o, days });
+    }
+  }
+  pairs.sort((a, b) => a.days - b.days);
+  const out = new Map(), used = new Set();
+  for (const { t, o } of pairs) {
+    if (out.has(t.id) || used.has(o.id)) continue;
+    out.set(t.id, o);
+    used.add(o.id);
+  }
+  return out;
+}
+
+/**
+ * Mark unmatched transactions that look like transfers between your own accounts
+ * (action 'transfer'): the other side found in another account (why 'transfer-pair', with `pair`),
+ * else the bank's text (why 'transfer-text'). Matches and remembered choices are left alone.
+ */
+export function suggestTransfers(txns, others, account) {
+  const open = txns.filter(t => !t.action);
+  const pairs = findTransfers(open, others, account);
+  return txns.map(t => {
+    if (t.action) return t;
+    const pair = pairs.get(t.id);
+    if (pair) return { ...t, action: 'transfer', why: 'transfer-pair', pair };
+    if (looksLikeTransfer(t.description)) return { ...t, action: 'transfer', why: 'transfer-text' };
+    return t;
+  });
+}
+
+// ---------- Refunds ----------
+
+/**
+ * Money back from a payee you pay (a refund) goes to the same entry as their purchases, as a
+ * credit, rather than counting as income: first where their purchases in this file are going, else
+ * where their earlier imported payments went. history: Map payeeKey → expense entry id.
+ */
+export function suggestRefunds(txns, history = new Map()) {
+  const spentAt = new Map(); // payee → entry id their purchases in this file matched
+  for (const t of txns) {
+    if (t.amount < 0 && t.action && !['ignore', 'transfer'].includes(t.action)) {
+      for (const k of [t.payee, t.oldPayee]) if (k && !spentAt.has(k)) spentAt.set(k, t.action);
+    }
+  }
+  return txns.map(t => {
+    if (t.action || t.amount <= 0) return t;
+    const id = spentAt.get(t.payee) ?? spentAt.get(t.oldPayee) ?? history.get(t.payee) ?? history.get(t.oldPayee);
+    return id ? { ...t, action: id, why: 'refund' } : t;
+  });
 }

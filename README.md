@@ -77,7 +77,7 @@ No backend, no account. All data lives on the device in IndexedDB.
     Set a remembered row to *Skip for now* to forget it.
   - **Starting again:** Settings → *Undo bank imports* removes imported payments, the entries imports
     added (switch off any you want to keep), remembered matches and the ignored list. Payments you
-    logged yourself, your payee names and "always ignore" payees are kept. *Forget remembered
+    logged yourself, your payee names and "always ignore" / transfer payees are kept. *Forget remembered
     matches* on its own is there too.
   - **No duplicates:** importing an overlapping statement never logs the same transaction twice.
     Choose the same account each time; the app suggests the one a file was imported into before.
@@ -103,6 +103,17 @@ No backend, no account. All data lives on the device in IndexedDB.
     takes their other undecided transactions with it. It becomes a recurring entry if the payee looks
     recurring, *Variable (no set schedule)* if there are several transactions, or a one-off if
     there's just one.
+  - **Transfers between your own accounts** (paying off a card, moving money to savings) aren't
+    spending or income, so they're shown under *Transfers between your accounts* and not logged.
+    They're spotted from the bank's text ("PAYMENT RECEIVED, THANK YOU", "Transfer to … Savings"),
+    or when another account you've imported has the same amount going the other way within 3 days.
+    If that other side was already imported into a catch-all entry (e.g. the savings statement went
+    in first), it's taken out of it. Plain "Transfer to xx1234" isn't assumed to be yours, since rent
+    and payments to people look the same. Choosing *Transfer between my accounts* yourself remembers
+    the payee.
+  - **Refunds** follow the payee's purchases: money back from a shop goes to the same entry (or
+    *Everyday spending*) as a credit, not to *Other income*. Purchases and refunds from one payee
+    share a row.
   - **Recurring payments you haven't added**, e.g. "Disney Plus, 3 × $13.99 monthly", can be added as
     entries with one tap, past payments included.
 - **Spreadsheet export** (Settings → Export spreadsheet): three CSV files (entries, payments and

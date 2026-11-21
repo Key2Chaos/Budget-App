@@ -439,6 +439,52 @@ test('CR / DR amounts: DR is money out, CR money in, with or without a space', (
   assert.equal(txns[0].balance, 3867.01);
 });
 
+test('transfers: card payments and savings transfers recognised by their text, not rent', () => {
+  assert.ok(B.looksLikeTransfer('PAYMENT RECEIVED, THANK YOU'));
+  assert.ok(B.looksLikeTransfer('PAYMENT - THANK YOU'));
+  assert.ok(B.looksLikeTransfer('Transfer to xx5555 NetBank Savings'));
+  assert.ok(B.looksLikeTransfer('TFR FROM CREDIT CARD 1234'));
+  assert.ok(!B.looksLikeTransfer('Transfer to xx9876 CommBank app Rent November'), 'paying someone else');
+  assert.ok(!B.looksLikeTransfer('Salary ACME PTY LTD'));
+});
+
+test('transfers: the other side is found in another account (same amount the other way, within 3 days)', () => {
+  const txns = [
+    { id: 'a', date: '2026-11-01', amount: -250, description: 'Transfer to xx1111', payee: 'X' },
+    { id: 'b', date: '2026-11-01', amount: -250, description: 'Transfer to xx1111', payee: 'X' },
+    { id: 'c', date: '2026-11-10', amount: -40, description: 'Transfer to xx2222', payee: 'Y' },
+  ];
+  const others = [
+    { id: 'o1', account: 'card', date: '2026-11-03', amount: 250 },
+    { id: 'o2', account: 'savings', date: '2026-11-01', amount: 250 }, // same account: not a transfer
+    { id: 'o3', account: 'card', date: '2026-11-20', amount: 40 },     // too far apart
+  ];
+  const pairs = B.findTransfers(txns, others, 'Savings');
+  assert.equal(pairs.size, 1, 'each side pairs once');
+  assert.equal(pairs.get('a').id, 'o1');
+  const s = B.suggestTransfers([...txns, { id: 'd', date: '2026-11-20', amount: 250, description: 'PAYMENT RECEIVED, THANK YOU', payee: 'P' },
+    { id: 'e', date: '2026-11-20', amount: -9, description: 'PAYMENT RECEIVED', payee: 'Q', action: 'entry1' }], others, 'Savings');
+  assert.deepEqual(s.map(t => [t.action || '', t.why || null]),
+    [['transfer', 'transfer-pair'], ['', null], ['', null], ['transfer', 'transfer-text'], ['entry1', null]],
+    'matches and remembered choices are left alone');
+  // A payee remembered as a transfer
+  const r = B.suggest([{ id: 'z', date: '2026-11-01', amount: -5, description: 'x', payee: 'MY SAVER' }], [], { 'MY SAVER': 'transfer' });
+  assert.deepEqual([r[0].action, r[0].why], ['transfer', 'rule']);
+});
+
+test('refunds follow the payee’s purchases: in this file first, else earlier imports', () => {
+  const txns = [
+    { id: '1', date: '2026-11-01', amount: -60, payee: 'KMART', action: 'e-home' },
+    { id: '2', date: '2026-11-05', amount: 20, payee: 'KMART', action: '' },
+    { id: '3', date: '2026-11-06', amount: 15, payee: 'MYER', action: '' },
+    { id: '4', date: '2026-11-07', amount: 2950, payee: 'SALARY', action: '' },
+    { id: '5', date: '2026-11-08', amount: 5, payee: 'KMART', action: 'ignore' },
+  ];
+  const out = B.suggestRefunds(txns, new Map([['MYER', 'e-clothes'], ['KMART', 'e-other']]));
+  assert.deepEqual(out.map(t => [t.action, t.why || null]),
+    [['e-home', null], ['e-home', 'refund'], ['e-clothes', 'refund'], ['', null], ['ignore', null]]);
+});
+
 test('payee keys ignore card numbers, dates, places', () => {
   assert.equal(B.payeeKey('NETFLIX.COM MELBOURNE AU AUS Card xx1234 Value Date: 02/11/2026'), 'NETFLIX COM MELBOURNE');
   assert.equal(B.payeeKey('Direct Debit 445566 ORIGIN ENERGY'), 'ORIGIN ENERGY');
@@ -512,10 +558,12 @@ test('card lines: the padded merchant column is the payee, whatever town follows
 
 test('import memory (rules, ignored, accounts) survives a backup round trip', () => {
   const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
-    settings: { payeeRules: { 'ORIGIN ENERGY': 'abc', bad: 5 }, ignoredTxns: ['t1', 't1', 7], bankAccounts: [' CommBank  card '] } });
+    settings: { payeeRules: { 'ORIGIN ENERGY': 'abc', bad: 5 }, ignoredTxns: ['t1', 't1', 7], bankAccounts: [' CommBank  card '],
+      transfers: [{ id: 'x1', account: 'CommBank Card', date: '2026-11-01', amount: 250 }, { id: 'x1', account: 'a', date: '2026-11-01', amount: 1 }, { id: 'x2', date: 'bad' }] } });
   assert.deepEqual(settings.payeeRules, { 'ORIGIN ENERGY': 'abc' });
   assert.deepEqual(settings.ignoredTxns, ['t1']);
   assert.deepEqual(settings.bankAccounts, ['CommBank card']);
+  assert.deepEqual(settings.transfers, [{ id: 'x1', account: 'commbank card', date: '2026-11-01', amount: 250 }]);
 });
 
 test('card purchases near a bill\'s price are not matched to it on amount alone', () => {

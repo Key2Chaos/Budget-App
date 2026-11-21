@@ -170,6 +170,15 @@ function normalizeSettings(raw) {
     const ids = [...new Set(raw.ignoredTxns.filter(x => typeof x === 'string' && x))].slice(-5000);
     if (ids.length) out.ignoredTxns = ids;
   }
+  // Transfers between your own accounts (added Nov 2026, optional): { id, account, date, amount }.
+  // Not logged as payments; kept so they aren't imported again, and to pair with the other side.
+  if (Array.isArray(raw?.transfers)) {
+    const seen = new Set();
+    const list = raw.transfers.filter(x => x && typeof x.id === 'string' && x.id && !seen.has(x.id) && seen.add(x.id)
+      && typeof x.account === 'string' && isDate(x.date) && Number.isFinite(x.amount))
+      .map(x => ({ id: x.id, account: x.account.toLowerCase(), date: x.date, amount: x.amount })).slice(-3000);
+    if (list.length) out.transfers = list;
+  }
   if (Array.isArray(raw?.bankAccounts)) {
     const names = [...new Set(raw.bankAccounts.map(cleanLabel).filter(Boolean))];
     if (names.length) out.bankAccounts = names;
