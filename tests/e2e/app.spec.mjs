@@ -1,5 +1,6 @@
 // Core screens, navigation, offline, start-up upgrade of old data, focus.
 import { test, expect, openWithSample, tab, card, row, expectNoHorizontalScroll } from './helpers.mjs';
+import { SCHEMA_VERSION } from '../../js/schema.js';
 
 test('empty state, then sample data fills every Overview card', async ({ page }) => {
   await page.goto('/');
@@ -88,7 +89,7 @@ test('data saved by an older app version is upgraded on start-up', async ({ page
   expect(stored.entry.prices[0].frequency).toBe('monthly');
   expect(stored.entry.tags).toEqual([]);
   expect(stored.entry.payments).toEqual([]);
-  expect(stored.settings.schemaVersion).toBe(3);
+  expect(stored.settings.schemaVersion).toBe(SCHEMA_VERSION);
 });
 
 test('sheets open with focus on the title, not a button (no stray focus box)', async ({ page }) => {

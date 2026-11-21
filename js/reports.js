@@ -68,7 +68,7 @@ export function newlyOver(before, after, budgets, y, m0) {
  * Manual payments already marked paid are skipped; overdue manual ones are included as due today.
  */
 export function untilPayday(entries, today = C.todayISO(), paydayEntryId = null) {
-  const incomes = entries.filter(e => e.type === 'income' && e.frequency !== 'once' && !C.isEnded(e, today));
+  const incomes = entries.filter(e => e.type === 'income' && e.frequency !== 'once' && !C.isEnded(e, today) && !C.isIrregular(e, today));
   if (!incomes.length) return null;
   const main = incomes.find(e => e.id === paydayEntryId)
     || [...incomes].sort((a, b) => C.monthlyEquivalent(b, today) - C.monthlyEquivalent(a, today))[0];

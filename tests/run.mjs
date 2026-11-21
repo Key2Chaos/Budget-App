@@ -171,6 +171,33 @@ test('notice period moves the deadline earlier', () => {
   assert.equal(C.noticeBy(entries.find(e => e.name === 'Rent')), null);
 });
 
+test('no set schedule: spending is what was logged each month, with no due dates', () => {
+  const { entries } = migrateBackup(load('v4-2026-11-no-set-schedule.json'));
+  const topups = entries.find(e => e.name === 'Prepaid mobile top-ups');
+  assert.equal(C.nextDue(topups, '2026-11-21'), null);
+  assert.deepEqual(C.occurrences(topups, '2026-06-01', '2026-12-31'), []);
+  // average of the last three complete months since logging began: Aug 50, Sep 0, Oct 40
+  assert.equal(C.estimateOn(topups, '2026-11-21'), 30);
+  assert.equal(C.monthAmount(topups, 2026, 7), 50);   // Aug: two top-ups, not spread over a period
+  assert.equal(C.monthAmount(topups, 2026, 8), 0);    // Sep: nothing logged
+  assert.equal(C.monthAmount(topups, 2026, 9), 40);
+  assert.equal(C.monthAmount(topups, 2026, 6), 30);   // Jul: before logging began → the typed estimate
+  assert.equal(C.monthlyEquivalent(topups, '2026-11-21'), 30);
+  // A fixed monthly allowance that became "whenever": due dates stop at the change
+  const fuel = entries.find(e => e.name === 'Fuel');
+  assert.equal(C.monthAmount(fuel, 2026, 6), 200);
+  assert.equal(C.nextDue(fuel, '2026-08-15'), null);
+  assert.equal(C.occurrences(fuel, '2026-07-01', '2026-12-31').join(), '2026-07-01,2026-08-01');
+  // Matching: no dates or per-payment amount to compare, so the full name is enough
+  const t = { date: '2026-11-03', amount: -61.2, description: 'FUEL STOP PENRITH' };
+  assert.equal(B.matchDetail(t, fuel).ok, true);
+  assert.equal(B.matchDetail({ ...t, description: 'PREPAID GIFT CARD' }, topups).ok, false, 'part of the name is not enough');
+  assert.equal(B.nearestDue(fuel, '2026-11-03'), null);
+  // A blank amount is fine with no set schedule; payday ignores incomes with no schedule
+  assert.ok(normalizeEntry({ id: 'x', type: 'income', name: 'Tips', frequency: 'irregular', startDate: '2026-01-01',
+    prices: [{ from: '2026-01-01', amount: null, frequency: 'irregular' }] }));
+});
+
 test('varying bills: estimate comes from payments; amounts can be blank', () => {
   const { entries } = migrateBackup(load('v3-2026-11-varying-no-amount.json'));
   const by = n => entries.find(e => e.name === n);
@@ -191,7 +218,7 @@ test('a blank amount is only allowed on varying bills', () => {
 });
 
 test('older app data is not affected by blank-amount support', () => {
-  for (const f of fixtures.filter(f => !f.startsWith('v3-'))) {
+  for (const f of fixtures.filter(f => /^v[12]-/.test(f))) { // formats from before blank amounts existed
     for (const e of migrateBackup(load(f)).entries) assert.ok(e.prices.every(p => typeof p.amount === 'number'));
   }
 });

@@ -10,7 +10,13 @@ export const FREQ = {
   quarterly:   { label: 'Quarterly',      perMonth: 1 / 3,   months: 3 },
   halfyearly:  { label: 'Every 6 months', perMonth: 1 / 6,   months: 6 },
   yearly:      { label: 'Yearly',         perMonth: 1 / 12,  months: 12 },
+  // No set schedule (e.g. prepaid top-ups, fuel): paid whenever. The amount is "about per month",
+  // there are no due dates, and spending comes from the payments logged.
+  irregular:   { label: 'Variable (no set schedule)', short: 'Variable', perMonth: 1, irregular: true },
 };
+
+/** True when the entry has no set schedule on that date. */
+export const isIrregular = (e, dateISO = todayISO()) => FREQ[freqOn(e, dateISO)]?.irregular === true;
 
 const pad = n => String(n).padStart(2, '0');
 export const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -71,6 +77,7 @@ export const paymentsOf = e => [...(e.payments || [])].sort(byDate);
 export function estimateOn(e, dateISO = todayISO()) {
   const p = periodOn(e, dateISO);
   if (!p) return 0;
+  if (FREQ[p.frequency]?.irregular) return irregularMonthly(e, dateISO, p);
   if (!e.variable) return p.amount ?? 0;
   const avg = list => list.reduce((s, x) => s + x.amount, 0) / list.length;
   const before = paymentsOf(e).filter(x => x.date <= dateISO && x.amount > 0);
@@ -86,6 +93,33 @@ export function estimateOn(e, dateISO = todayISO()) {
   if (!perMonth) return avg(recent);
   const monthly = recent.reduce((s, x) => s + x.amount * FREQ[freqOn(e, x.date)].perMonth, 0) / recent.length;
   return monthly / perMonth;
+}
+
+/** Total logged in a calendar month (full bill). */
+const loggedIn = (e, start, end) => (e.payments || []).filter(x => x.date >= start && x.date <= end).reduce((s, x) => s + x.amount, 0);
+const monthBounds = (y, m0) => [iso(new Date(y, m0, 1)), iso(new Date(y, m0 + 1, 0))];
+
+/**
+ * "About per month" for a bill with no set schedule: the average of the last three complete
+ * months since payments started being logged (months with nothing logged count as 0), else the
+ * amount typed in, else what's been logged so far this month.
+ */
+function irregularMonthly(e, dateISO, p) {
+  const pays = paymentsOf(e).filter(x => x.date >= p.from && x.date <= dateISO);
+  const d = parse(dateISO);
+  if (pays.length) {
+    const first = pays[0].date.slice(0, 7);
+    const months = [];
+    for (let i = 1; i <= 3; i++) {
+      const [s, end] = monthBounds(d.getFullYear(), d.getMonth() - i);
+      if (s.slice(0, 7) < first) break;
+      months.push(loggedIn(e, s, end));
+    }
+    if (months.length) return months.reduce((a, b) => a + b, 0) / months.length;
+  }
+  if (p.amount != null) return p.amount;
+  const [s] = monthBounds(d.getFullYear(), d.getMonth());
+  return loggedIn(e, s, dateISO);
 }
 
 /** Planned monthly amount on a date (full bill). */
@@ -111,6 +145,12 @@ export function paymentSpans(e) {
   let prev = null;
   for (const p of paymentsOf(e)) {
     const f = FREQ[e.frequency === 'once' ? 'monthly' : freqOn(e, p.date)];
+    if (f.irregular) { // no billing period to spread over: it counts on the day it was paid
+      if (out.length && out.at(-1).to === p.date) out.at(-1).amount += p.amount;
+      else out.push({ fromExcl: addDaysISO(p.date, -1), to: p.date, amount: p.amount, days: 1, irregular: true });
+      prev = p.date;
+      continue;
+    }
     let from = f.days ? addDaysISO(p.date, -f.days) : iso(addMonths(parse(p.date), -f.months));
     if (prev && prev > from) from = prev;
     const days = daysBetween(from, p.date);
@@ -132,6 +172,7 @@ export function monthAmount(e, y, m0) {
     if (pays.length) return share * pays.filter(p => p.date >= start && p.date <= end).reduce((s, p) => s + p.amount, 0);
     return e.startDate >= start && e.startDate <= end ? share * priceOn(e, e.startDate) : 0;
   }
+  if (isIrregular(e, end) && !(e.startDate > end)) return share * irregularMonth(e, start, end);
   // What was actually paid for days in this month…
   const monthDays = daysBetween(start, end) + 1;
   let actual = 0, covered = 0;
@@ -151,6 +192,24 @@ export function monthAmount(e, y, m0) {
     planned = planPerMonth(e, ref) * Math.max(0, 1 - covered / monthDays);
   }
   return share * (actual + planned);
+}
+
+/**
+ * A month of a bill with no set schedule: what was logged, once logging has started. Past months
+ * are what was logged; this month is what's logged so far plus the estimate for the days left;
+ * future months, and months before the first payment was logged, use the estimate.
+ */
+function irregularMonth(e, start, end) {
+  const logged = loggedIn(e, start, end);
+  const stop = stopDate(e);
+  if (stop && stop < start) return logged;                        // after it stopped
+  const today = todayISO();
+  if (start > today) return estimateOn(e, today);                  // future
+  const firstPaid = paymentsOf(e)[0]?.date;
+  if (!firstPaid || firstPaid > end) return estimateOn(e, end < today ? end : today); // before logging began
+  if (end < today) return logged;                                  // past
+  const left = daysBetween(today, end);                            // this month: logged + the rest
+  return logged + estimateOn(e, today) * (left / (daysBetween(start, end) + 1));
 }
 
 /** Last day to give notice before the contract ends (or null). */
@@ -213,8 +272,16 @@ export function nextDue(e, fromISO = todayISO()) {
   const segs = schedules(e);
   let i = 0;
   while (i + 1 < segs.length && segs[i + 1].from <= fromISO) i++;
+  // No set schedule: no due dates (until a later change brings one back)
+  if (FREQ[segs[i].frequency].irregular) {
+    const later = segs.slice(i + 1).find(x => !FREQ[x.frequency].irregular);
+    return later ? nextDue(e, later.from) : null;
+  }
   let s = nextOnSchedule(segs[i].from, segs[i].frequency, fromISO);
-  if (segs[i + 1] && s >= segs[i + 1].from) s = segs[i + 1].from;
+  if (segs[i + 1] && s >= segs[i + 1].from) {
+    s = segs[i + 1].from;
+    if (FREQ[segs[i + 1].frequency].irregular) return nextDue(e, s);
+  }
   const stop = stopDate(e);
   return stop && s > stop ? null : s;
 }
@@ -239,6 +306,7 @@ export function isPaid(e, dueISO) {
   const pays = e.payments || [];
   if (e.frequency === 'once') return pays.length > 0;
   const f = FREQ[freqOn(e, dueISO)];
+  if (f.irregular) return pays.some(p => p.date === dueISO);
   const half = f.days ? f.days / 2 : f.months * 15;
   return pays.some(p => (p.due ? p.due === dueISO : Math.abs(daysBetween(p.date, dueISO)) < half));
 }

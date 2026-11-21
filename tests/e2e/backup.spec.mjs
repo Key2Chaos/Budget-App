@@ -1,6 +1,7 @@
 // Backup export / import and spreadsheet export.
 import { readFileSync } from 'node:fs';
 import { test, expect, openWithSample, tab, row, fixturePath } from './helpers.mjs';
+import { SCHEMA_VERSION } from '../../js/schema.js';
 
 // On an iPhone these open the share sheet, which a test browser can't drive.
 test.beforeEach(({ browserName }) => test.skip(browserName === 'webkit', 'iPhone uses the share sheet for exports'));
@@ -12,7 +13,7 @@ test('export backup downloads a valid, current-format file', async ({ page }) =>
   expect(dl.suggestedFilename()).toBe('budget-backup-2026-11-21.json');
   const data = JSON.parse(readFileSync(await dl.path(), 'utf8'));
   expect(data.app).toBe('budget-pwa');
-  expect(data.version).toBe(3);
+  expect(data.version).toBe(SCHEMA_VERSION);
   expect(data.entries.length).toBeGreaterThan(10);
   expect(data.settings.budgets.length).toBe(3);
   await expect(page.locator('.fine.pad-x').first()).toContainText('Last backup: 21 Nov');

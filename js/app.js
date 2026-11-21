@@ -504,14 +504,15 @@ function renderEntries() {
     const sub = [
       e.category,
       e.method,
-      once ? fmtDate(e.startDate) : C.FREQ[C.freqOn(e, today)].label,
+      once ? fmtDate(e.startDate) : (C.FREQ[C.freqOn(e, today)].short || C.FREQ[C.freqOn(e, today)].label),
       C.isEnded(e, today) ? `Ended ${fmtDate(C.stopDate(e))}` : (!once && due ? `Next ${fmtDate(due)}` : null),
       e.manual ? 'Paid manually' : null,
       last && !once ? `Last ${money(last.amount)} on ${fmtDate(last.date)}` : null,
     ].filter(Boolean).map(esc).join(' · ');
     const notes = [];
     if (e.share < 100) notes.push(`your ${e.share}% of ${money(full)}`);
-    const f = once ? 'once' : C.freqOn(e, today);
+    const f = once ? 'once' : C.isIrregular(e, today) ? 'monthly' : C.freqOn(e, today); // no schedule: shown per month
+    if (!once && C.isIrregular(e, today) && !yearly) notes.push('about a month');
     // show the per-month (or per-year) figure when it differs from the amount shown
     if (!once && C.monthlyEquivalent(e) > 0 && (yearly ? f !== 'yearly' : f !== 'monthly')) notes.push(`≈ ${money(C.monthlyEquivalent(e) * k)}${per}`);
     const tags = e.tags?.length
@@ -575,7 +576,7 @@ async function renderSettings() {
         <span class="chev" aria-hidden="true">›</span>
       </button>
       ${(() => {
-        const incomes = state.entries.filter(e => e.type === 'income' && e.frequency !== 'once' && !C.isEnded(e));
+        const incomes = state.entries.filter(e => e.type === 'income' && e.frequency !== 'once' && !C.isEnded(e) && !C.isIrregular(e));
         if (!incomes.length) return '';
         return `<label class="row static">
           <div class="row-main"><div class="row-title">Payday</div>
@@ -725,7 +726,11 @@ function openSheet(entry = null) {
         // worked out as a varying bill, so it's right even if the switch is only just being turned on
         const est = C.estimateOn({ ...e, variable: true }, C.todayISO());
         const logged = (e.payments || []).filter(p => p.amount > 0).length;
+        const noSchedule = C.isIrregular(e, C.todayISO());
         const now = est <= 0 ? 'No estimate yet. Log a payment below to set one.'
+          : noSchedule ? `Current estimate: <strong>≈${money(est)}</strong> a month — ${logged
+            ? 'the average of your last three complete months of logged payments.'
+            : 'the amount entered earlier, until you log payments.'} With no set schedule there are no due dates.`
           : `Current estimate: <strong>≈${money(est)}</strong> per payment — ${logged
             ? 'worked out from your logged payments (average of the latest three).'
             : 'the amount entered earlier, until you log payments.'}`;
@@ -802,20 +807,27 @@ function openSheet(entry = null) {
   const freqSelect = () => form.querySelector('select[name=frequency]') || form.querySelector('select[name=pfreq]');
   const syncFreq = () => {
     const once = freqSelect().value === 'once';
+    const irregular = !!C.FREQ[freqSelect().value]?.irregular;
     form.classList.toggle('is-once', once);
-    $('.lbl-start', form).textContent = once ? 'Date' : (form.type.value === 'income' ? 'First received' : 'First payment');
+    form.classList.toggle('is-irregular', irregular);
+    $('.lbl-start', form).textContent = once ? 'Date' : irregular ? 'Started'
+      : (form.type.value === 'income' ? 'First received' : 'First payment');
+    // No set schedule: amounts always come from the payments logged
+    if (irregular && !form.variable.checked) { form.variable.checked = true; syncVariable(); }
+    else if (form.amount) syncVariable();
   };
   // "Amount varies": amounts come from logged payments, so they're optional / hidden in the history
   const syncVariable = () => {
     const v = form.variable.checked;
     form.classList.toggle('is-variable', v);
     if (form.amount) {
-      $('.lbl-amount', form).textContent = v ? 'Estimate' : 'Amount';
+      const irregular = !!C.FREQ[freqSelect().value]?.irregular;
+      $('.lbl-amount', form).textContent = irregular ? 'About per month' : v ? 'Estimate' : 'Amount';
       form.amount.placeholder = v ? 'Optional' : '0.00';
     }
   };
   $('#dl-method').innerHTML = methodOptions().map(c => `<option value="${esc(c)}">`).join('');
-  syncType(); syncFreq(); syncVariable();
+  syncType(); syncVariable(); syncFreq();
 
   // Tag editor
   let tags = normalizeTags(e.tags);

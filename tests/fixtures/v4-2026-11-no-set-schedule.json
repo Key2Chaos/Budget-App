@@ -1,0 +1,46 @@
+{
+  "app": "budget-pwa",
+  "version": 4,
+  "exportedAt": "2026-11-21T22:00:00.000Z",
+  "settings": { "currency": "AUD", "lastBackup": "2026-11-21T22:00:00.000Z" },
+  "entries": [
+    {
+      "id": "a1b2c3d4-0007-4000-8000-000000000001",
+      "type": "expense",
+      "name": "Prepaid mobile top-ups",
+      "category": "Phone & Internet",
+      "method": "Credit card",
+      "frequency": "irregular",
+      "startDate": "2026-06-01",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "Topped up whenever it runs out", "tags": [],
+      "prices": [{ "from": "2026-06-01", "amount": 30, "frequency": "irregular" }],
+      "variable": true, "manual": false, "share": 100, "noticeDays": null,
+      "payments": [
+        { "id": "t1", "date": "2026-08-03", "amount": 30, "due": null, "note": "" },
+        { "id": "t2", "date": "2026-08-25", "amount": 20, "due": null, "note": "" },
+        { "id": "t3", "date": "2026-10-12", "amount": 40, "due": null, "note": "" },
+        { "id": "t4", "date": "2026-11-02", "amount": 25, "due": null, "note": "" }
+      ],
+      "createdAt": "2026-11-21T21:00:00.000Z", "updatedAt": "2026-11-21T21:00:00.000Z"
+    },
+    {
+      "id": "a1b2c3d4-0007-4000-8000-000000000002",
+      "type": "expense",
+      "name": "Fuel",
+      "category": "Transport",
+      "method": "Debit card",
+      "frequency": "irregular",
+      "startDate": "2026-01-01",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "Was a fixed monthly allowance, now whenever", "tags": [],
+      "prices": [
+        { "from": "2026-01-01", "amount": 200, "frequency": "monthly" },
+        { "from": "2026-09-01", "amount": null, "frequency": "irregular" }
+      ],
+      "variable": true, "manual": false, "share": 100, "noticeDays": null,
+      "payments": [],
+      "createdAt": "2026-11-21T21:00:00.000Z", "updatedAt": "2026-11-21T21:00:00.000Z"
+    }
+  ]
+}

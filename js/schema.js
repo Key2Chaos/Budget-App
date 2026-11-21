@@ -9,7 +9,7 @@
 import { FREQ } from './calc.js';
 
 export const APP_ID = 'budget-pwa';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** MIGRATIONS[n] upgrades a backup object from version n to n + 1. */
 const MIGRATIONS = {
@@ -26,6 +26,9 @@ const MIGRATIONS = {
   // estimate comes from logged payments). Nothing to convert — the bump only stops older app
   // versions, which would drop such entries, from importing v3 backups.
   2: data => ({ ...data, version: 3 }),
+  // v3 → v4 (Nov 2026): new frequency 'irregular' (no set schedule). Nothing to convert — the bump
+  // stops older app versions, which don't know it and would drop such entries, from importing v4.
+  3: data => ({ ...data, version: 4 }),
 };
 
 const str = v => (typeof v === 'string' ? v : '');
@@ -65,7 +68,9 @@ export function normalizeEntry(raw) {
       frequency: str(p?.frequency),
     }))
     // a blank amount is only allowed on "amount varies" bills (the estimate comes from payments)
-    .filter(p => isDate(p.from) && (p.amount === null ? !!raw.variable : Number.isFinite(p.amount) && p.amount >= 0))
+    .filter(p => isDate(p.from) && (p.amount === null
+      ? !!raw.variable || FREQ[p.frequency]?.irregular || FREQ[raw.frequency]?.irregular
+      : Number.isFinite(p.amount) && p.amount >= 0))
     .sort((a, b) => a.from.localeCompare(b.from));
   if (raw.id == null || raw.id === '' || !str(raw.name).trim() || !isDate(raw.startDate) || !FREQ[raw.frequency] || !prices.length) {
     return null;

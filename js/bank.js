@@ -204,6 +204,7 @@ const nameTokens = name => String(name).toLowerCase().split(/[^a-z0-9]+/).filter
 export function nearestDue(e, dateISO) {
   if (e.frequency === 'once') return Math.abs(C.daysBetween(e.startDate, dateISO)) <= 14 ? e.startDate : null;
   const f = C.FREQ[C.freqOn(e, dateISO)];
+  if (f.irregular) return null; // no set schedule, no due dates
   const half = Math.max(2, Math.floor((f.days || f.months * 30) / 2));
   const dues = C.occurrences(e, C.addDaysISO(dateISO, -half), C.addDaysISO(dateISO, half));
   if (!dues.length) return null;
@@ -246,8 +247,11 @@ export function matchDetail(txn, e) {
   const { hits, of } = nameHits(txn, e);
   const name = hits ? (hits === of ? 'full' : 'partial') : null;
 
+  // No set schedule: there are no due dates, and the estimate is per month rather than per payment,
+  // so only the name can say whether a transaction belongs to it.
+  const irregular = C.isIrregular(e, txn.date);
   let amount = null;
-  const est = C.estimateOn(e, txn.date);
+  const est = irregular ? 0 : C.estimateOn(e, txn.date);
   if (est > 0) {
     const a = Math.abs(txn.amount);
     const costs = [est, est * C.shareOf(e)];
@@ -265,7 +269,7 @@ export function matchDetail(txn, e) {
     date = days <= DUE_DAYS ? 'due' : days <= near ? 'near' : null;
   }
 
-  const ok = (name === 'full' && !!(amount || date))
+  const ok = (name === 'full' && (irregular || !!(amount || date)))
     || (name === 'partial' && !!amount && !!date)
     || (!name && amount === 'exact' && date === 'due');
   const score = (name === 'full' ? 4 : name === 'partial' ? 2 : 0)
