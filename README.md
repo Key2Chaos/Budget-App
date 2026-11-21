@@ -87,6 +87,13 @@ No backend, no account. All data lives on the device in IndexedDB.
     it's saved in each payment's note. Clear the name to go back to the bank's text.
   - **Renaming an account** (Settings → Bank statements → Rename) is safe: transactions are still
     recognised, and entries using the old name as their payment method are updated.
+  - **Everything imports by default.** Matches go to their entry, payees that look recurring get an
+    entry of their own, and everything else goes to the account's catch-all entry, *Everyday
+    spending – <account>* (or *Other income – <account>* for money in). Change any row before
+    importing, or choose *Skip for now* / *Ignore*.
+  - **Sorting it out later:** open an entry with imported payments from several payees (like the
+    catch-all) and use **Payees → Move to…** to move all of one payee's payments to another entry, or
+    into a new entry of its own. Future imports send that payee there too.
   - **New entry from any transaction:** the dropdown's *+ New entry* creates one for that payee, and
     takes their other undecided transactions with it. It becomes a recurring entry if the payee looks
     recurring, *Variable (no set schedule)* if there are several transactions, or a one-off if

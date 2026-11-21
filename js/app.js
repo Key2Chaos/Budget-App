@@ -671,6 +671,79 @@ function priceRow(p, first) {
   </div>`;
 }
 
+/** Which payee an imported payment came from (older payments: worked out from the bank's text in the note). */
+const payeeOfPayment = p => (p.source ? p.payee || Bank.payeeKey((p.note || '').split(' · ').at(-1)) : null);
+const payeeLabel = key => state.settings.payeeNames?.[key] || Bank.payeeName(key);
+
+/**
+ * "Payees" on an entry that has imported payments from more than one payee (e.g. the catch-all
+ * "Everyday spending"): each payee's total, with Move to… another entry or a new one of its own.
+ */
+function payeesSection(entry) {
+  const by = new Map();
+  for (const p of entry.payments || []) {
+    const k = payeeOfPayment(p);
+    if (!k) continue;
+    const g = by.get(k) || { key: k, n: 0, total: 0, last: '' };
+    g.n++; g.total += p.amount; g.last = p.date > g.last ? p.date : g.last;
+    by.set(k, g);
+  }
+  if (by.size < (isCatchAll(entry) ? 1 : 2)) return ''; // a catch-all lists even its last payee
+  const groups = [...by.values()].sort((a, b) => b.total - a.total);
+  const targets = state.entries.filter(e => e.type === entry.type && e.id !== entry.id && !isCatchAll(e))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return `<div class="group-title">Payees (${groups.length})</div>
+    <section class="card form">${groups.map(g => `
+      <label class="field payee-row"><span>${esc(payeeLabel(g.key))}<br>
+        <span class="muted small-text">${g.n} payment${g.n === 1 ? "" : "s"} · ${money(g.total)} · last ${esc(fmtDate(g.last))}</span></span>
+        <select data-move-payee="${esc(g.key)}" aria-label="Move ${esc(payeeLabel(g.key))} to">
+          <option value="" selected>Move to…</option>
+          <option value="new">+ New entry: ${esc(payeeLabel(g.key))}</option>
+          ${targets.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('')}
+        </select></label>`).join('')}
+    </section>
+    <p class="fine pad-x">Move a payee's payments to another entry, or into an entry of its own. Future imports send that
+      payee there too.</p>`;
+}
+
+/** Move all of one payee's imported payments from an entry to another (or a new) entry. */
+async function movePayee(from, key, to) {
+  const pays = (from.payments || []).filter(p => payeeOfPayment(p) === key);
+  if (!pays.length) return;
+  const now = new Date().toISOString();
+  let dest;
+  if (to === 'new') {
+    const sorted = [...pays].sort((a, b) => a.date.localeCompare(b.date));
+    const one = pays.length === 1;
+    const frequency = one ? 'once' : 'irregular';
+    const start = sorted[0].date;
+    dest = normalizeEntry({
+      id: uid(), type: from.type, name: payeeLabel(key), category: '', method: from.method, frequency, startDate: start,
+      contractEnd: null, endsAtExpiry: false, endDate: null, notes: `Moved out of ${from.name}`, tags: [], fromImport: true,
+      prices: [{ from: start, amount: one ? Math.abs(sorted[0].amount) : null, frequency }],
+      variable: !one, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
+    });
+  } else {
+    dest = state.entries.find(e => e.id === to);
+  }
+  if (!dest) return;
+  const moved = pays.map(p => ({ ...p, payee: key, due: Bank.nearestDue(dest, p.date) }));
+  const ids = new Set(pays.map(p => p.id));
+  await db.putEntries([
+    normalizeEntry({ ...from, payments: from.payments.filter(p => !ids.has(p.id)), updatedAt: now }),
+    normalizeEntry({ ...dest, payments: [...(dest.payments || []), ...moved], updatedAt: now }),
+  ]);
+  if (dest.frequency !== 'once') {
+    state.settings.payeeRules = { ...(state.settings.payeeRules || {}), [key]: dest.id };
+    await saveSettings();
+  }
+  await reload();
+  const fresh = state.entries.find(e => e.id === from.id);
+  if (fresh) openSheet(fresh); // redraw in place, ready to move the next payee
+  else closeSheet();
+  toast(`Moved ${pays.length} payment${pays.length === 1 ? '' : 's'} to ${dest.name}`); // after the redraw, or it's wiped
+}
+
 /** One logged payment: date, Paid/Credit toggle, amount (full bill). */
 function payRow(p) {
   const credit = p.amount < 0;
@@ -755,6 +828,7 @@ function openSheet(entry = null) {
       <div class="group-title">Payments made</div>
       <section class="card form" id="payments">${C.paymentsOf(e).reverse().map(payRow).join('')}</section>
       <button type="button" class="link add-price" data-add-payment>+ Log payment</button>
+      ${entry ? payeesSection(entry) : ''}
 
       <section class="card form">
         <label class="field"><span>Category</span>
@@ -895,9 +969,13 @@ function openSheet(entry = null) {
     else if (ev.target.closest('[data-delete]')) deleteEntry(entry);
   });
   form.addEventListener('submit', ev => { ev.preventDefault(); saveForm(form, entry); });
+  form.addEventListener('change', ev => {
+    const s = ev.target.closest('select[data-move-payee]');
+    if (s && s.value) movePayee(entry, s.dataset.movePayee, s.value);
+  });
 
   document.body.classList.add('modal-open');
-  sheet.showModal();
+  if (!sheet.open) sheet.showModal();
   sheet.scrollTop = 0;
   if (isNew) setTimeout(() => form.name.focus(), 350);
 }
@@ -996,6 +1074,15 @@ function openBudgets() {
 
 // ---------- Bank statement import ----------
 let imp = null; // the import being reviewed
+
+/**
+ * Each import account has catch-all entries, "Everyday spending – <account>" and "Other income –
+ * <account>", for transactions that aren't matched to anything. Payees can be moved out of them later.
+ */
+const catchKey = (account, type) => `${account.toLowerCase()}|${type}`;
+const catchName = (account, type) => `${type === 'income' ? 'Other income' : 'Everyday spending'} – ${accountName(account)}`;
+const catchEntry = (account, type) => state.entries.find(e => e.catchAll === catchKey(account, type));
+const isCatchAll = e => !!e.catchAll;
 
 /**
  * Import accounts are stored by the name first used for them (it's part of each transaction's id).
@@ -1129,8 +1216,11 @@ async function renameAccount(key) {
   state.settings.accountNames = names;
   // Entries added from an import use the account as their payment method; keep those in step.
   const now = new Date().toISOString();
-  const changed = state.entries.filter(e => (e.method || '').toLowerCase() === from.toLowerCase())
-    .map(e => ({ ...e, method: to, updatedAt: now }));
+  // …and the account's catch-all entries keep its name in theirs.
+  const isCatchOf = e => e.catchAll && e.catchAll.startsWith(`${key.toLowerCase()}|`);
+  const changed = state.entries.filter(e => (e.method || '').toLowerCase() === from.toLowerCase() || isCatchOf(e))
+    .map(e => ({ ...e, method: (e.method || '').toLowerCase() === from.toLowerCase() ? to : e.method,
+      name: isCatchOf(e) ? catchName(key, e.catchAll.split('|').at(-1)) : e.name, updatedAt: now }));
   if (changed.length) await db.putEntries(changed);
   await saveSettings();
   await reload();
@@ -1174,18 +1264,24 @@ function buildImport() {
   const fresh = all.filter(t => !known.has(t.id));
   imp.total = all.length;
   imp.already = all.length - fresh.length;
-  imp.txns = Bank.suggest(fresh, state.entries.filter(e => !C.isEnded(e, C.addDaysISO(C.todayISO(), -90))),
+  imp.txns = Bank.suggest(fresh, state.entries.filter(e => !isCatchAll(e) && !C.isEnded(e, C.addDaysISO(C.todayISO(), -90))),
     state.settings.payeeRules || {}, state.settings.payeeNames || {})
     .sort((a, b) => b.date.localeCompare(a.date));
+  // Everything imports unless you say otherwise: matches go to their entry, payees that look
+  // recurring get an entry of their own, and the rest go to the account's catch-all entry.
+  imp.recurring = Bank.findRecurring(imp.txns.filter(t => !t.action));
+  imp.offGroups ||= new Set(); // recurring groups you switched off
+  imp.newGroups = new Set(imp.recurring.map(g => g.key).filter(k => !imp.offGroups.has(k)));
+  const groupOf = new Map(imp.recurring.flatMap(g => g.txns.map(t => [t.id, g.key])));
+  const byDefault = t => t.action
+    || (imp.newGroups.has(groupOf.get(t.id)) ? `new:${groupOf.get(t.id)}` : `catch:${t.amount < 0 ? 'expense' : 'income'}`);
   // Keep choices the user made by hand when this is a redraw (e.g. after renaming a payee).
   const prev = imp.decision, prevSuggested = imp.suggested;
-  imp.suggested = new Map(imp.txns.map(t => [t.id, t.action]));
+  imp.suggested = new Map(imp.txns.map(t => [t.id, byDefault(t)]));
   imp.decision = new Map(imp.txns.map(t => [t.id,
-    prev?.has(t.id) && prev.get(t.id) !== prevSuggested.get(t.id) ? prev.get(t.id) : t.action]));
+    prev?.has(t.id) && prev.get(t.id) !== prevSuggested.get(t.id) ? prev.get(t.id) : imp.suggested.get(t.id)]));
   imp.links = new Map();
-  imp.recurring = Bank.findRecurring(imp.txns.filter(t => !t.action));
-  imp.newGroups = new Set([...imp.newGroups].filter(k => imp.recurring.some(g => g.key === k)));
-  for (const [id, d] of imp.decision) if (d.startsWith('new:') && !imp.newGroups.has(d.slice(4))) imp.decision.set(id, '');
+  for (const [id, d] of imp.decision) if (d.startsWith('new:') && !imp.newGroups.has(d.slice(4))) imp.decision.set(id, imp.suggested.get(id));
   imp.range = all.length ? [all.reduce((m, t) => (t.date < m ? t.date : m), all[0].date), all.reduce((m, t) => (t.date > m ? t.date : m), all[0].date)] : null;
 }
 
@@ -1196,7 +1292,7 @@ function openImport() {
   imp.links = importLinks();
   const sample = imp.rows[imp.fmt.hasHeader ? 1 : 0]?.[imp.fmt.date] || '';
   const sampleISO = Bank.parseDate(sample, imp.order);
-  const entriesBy = type => state.entries.filter(e => e.type === type).sort((a, b) => a.name.localeCompare(b.name));
+  const entriesBy = type => state.entries.filter(e => e.type === type && !isCatchAll(e)).sort((a, b) => a.name.localeCompare(b.name));
   const groupOf = new Map(imp.recurring.flatMap(g => g.txns.map(t => [t.id, g])));
 
   const select = t => {
@@ -1213,6 +1309,7 @@ function openImport() {
       ${opt('', 'Skip for now')}
       ${opt('ignore', 'Ignore this one')}
       ${opt('ignore-payee', 'Always ignore this payee')}
+      ${opt(`catch:${t.amount < 0 ? 'expense' : 'income'}`, catchName(imp.account, t.amount < 0 ? 'expense' : 'income'))}
       ${make}
       <optgroup label="${t.amount < 0 ? 'Expenses' : 'Income'}">${list(t.amount < 0 ? 'expense' : 'income')}</optgroup>
       <optgroup label="${t.amount < 0 ? 'Income (as a refund)' : 'Expenses (as a refund)'}">${list(t.amount < 0 ? 'income' : 'expense')}</optgroup>
@@ -1279,7 +1376,10 @@ function openImport() {
       <section class="card">${suggested.map(txRow).join('')}</section>` : ''}
 
       ${rest.length ? `<div class="group-title">Not matched (${rest.length})
-        <button type="button" class="link small-link" data-ignore-rest>Ignore the rest</button></div>
+        <button type="button" class="link small-link" data-ignore-rest>Ignore all of these</button></div>
+      <p class="fine pad-x">These go to <strong>${esc(catchName(imp.account, 'expense'))}</strong> (money out) or
+        <strong>${esc(catchName(imp.account, 'income'))}</strong> (money in) unless you choose something else.
+        You can move a payee into its own entry later from that entry's screen.</p>
       <section class="card">${rest.map(txRow).join('')}</section>` : ''}
 
       ${!imp.txns.length ? '<p class="empty-small">Nothing new in this file.</p>' : ''}
@@ -1300,10 +1400,14 @@ function openImport() {
       if (v.startsWith('new:')) {
         const g = imp.recurring.find(x => x.key === v.slice(4));
         imp.newGroups.add(g.key);
-        g.txns.forEach(x => { if (!imp.decision.get(x.id)) imp.decision.set(x.id, v); });
+        imp.offGroups.delete(g.key);
+        g.txns.forEach(x => { const cur = imp.decision.get(x.id) || ''; if (!cur || cur.startsWith('catch:')) imp.decision.set(x.id, v); });
       }
       if (v.startsWith('make:')) {
-        imp.txns.forEach(x => { if (x.payee === v.slice(5) && !imp.decision.get(x.id)) imp.decision.set(x.id, v); });
+        imp.txns.forEach(x => {
+          const cur = imp.decision.get(x.id) || '';
+          if (x.payee === v.slice(5) && (!cur || cur.startsWith('catch:'))) imp.decision.set(x.id, v);
+        });
       }
       return openImportKeepScroll();
     }
@@ -1330,12 +1434,15 @@ function openImport() {
     const n = t.closest('[data-new]');
     if (n) {
       const g = imp.recurring.find(x => x.key === n.dataset.new);
+      const toCatch = x => `catch:${x.amount < 0 ? 'expense' : 'income'}`;
       if (imp.newGroups.has(g.key)) {
         imp.newGroups.delete(g.key);
-        g.txns.forEach(x => { if (imp.decision.get(x.id) === `new:${g.key}`) imp.decision.set(x.id, ''); });
+        imp.offGroups.add(g.key);
+        g.txns.forEach(x => { if (imp.decision.get(x.id) === `new:${g.key}`) imp.decision.set(x.id, toCatch(x)); });
       } else {
         imp.newGroups.add(g.key);
-        g.txns.forEach(x => { if (!imp.decision.get(x.id)) imp.decision.set(x.id, `new:${g.key}`); });
+        imp.offGroups.delete(g.key);
+        g.txns.forEach(x => { const cur = imp.decision.get(x.id) || ''; if (!cur || cur.startsWith('catch:')) imp.decision.set(x.id, `new:${g.key}`); });
       }
       return openImportKeepScroll();
     }
@@ -1346,7 +1453,7 @@ function openImport() {
       return openImportKeepScroll();
     }
     if (t.closest('[data-ignore-rest]')) {
-      imp.txns.forEach(x => { if (!imp.decision.get(x.id)) imp.decision.set(x.id, 'ignore'); });
+      imp.txns.forEach(x => { const cur = imp.decision.get(x.id) || ''; if (!cur || cur.startsWith('catch:')) imp.decision.set(x.id, 'ignore'); });
       return openImportKeepScroll();
     }
     if (t.closest('[data-apply]')) await applyImport();
@@ -1407,8 +1514,30 @@ async function applyImport() {
     if (!one) rules[payee] = id; // later purchases from them go to it too (not to a one-off)
   }
 
+  // The account's catch-all entries, created the first time they're needed
+  const catchIds = new Map();
+  let createdCatch = 0;
+  for (const type of ['expense', 'income']) {
+    if (![...imp.decision.values()].includes(`catch:${type}`)) continue;
+    const existing = catchEntry(imp.account, type);
+    if (existing) { catchIds.set(type, existing.id); continue; }
+    const id = uid();
+    const start = imp.txns.filter(t => imp.decision.get(t.id) === `catch:${type}`).reduce((m, t) => (t.date < m ? t.date : m), C.todayISO());
+    changed.set(id, {
+      id, type, name: catchName(imp.account, type), category: '', method: accountName(imp.account), frequency: 'irregular',
+      startDate: start, contractEnd: null, endsAtExpiry: false, endDate: null,
+      notes: 'Everything from bank imports that isn’t matched to another entry. Open it to move a payee into an entry of its own.',
+      tags: [], fromImport: true, catchAll: catchKey(imp.account, type),
+      prices: [{ from: start, amount: null, frequency: 'irregular' }],
+      variable: true, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
+    });
+    catchIds.set(type, id);
+    createdCatch++;
+  }
+
   for (const t of imp.txns) {
     let d = imp.decision.get(t.id) || '';
+    const chosen = d;
     const suggested = imp.suggested.get(t.id) || '';
     if (!d) {
       // A remembered choice switched to "Skip for now": it was wrong, so forget it.
@@ -1422,6 +1551,7 @@ async function applyImport() {
     }
     if (d.startsWith('new:')) d = imp.recurring.find(g => g.key === d.slice(4))?.newId;
     else if (d.startsWith('make:')) d = made.get(d.slice(5));
+    else if (d.startsWith('catch:')) d = catchIds.get(d.slice(6));
     const e = d && get(d);
     if (!e) continue;
     // Payments are stored as the bill amount: money out on an expense (or in on income) is positive;
@@ -1437,12 +1567,13 @@ async function applyImport() {
       changed.set(e.id, { ...e, payments, updatedAt: now });
       linked++;
     } else {
-      const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note, source: t.id };
+      const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note, source: t.id, payee: t.payee };
       changed.set(e.id, { ...e, payments: [...(e.payments || []), payment], updatedAt: now });
     }
     // Remember the payee only for choices you made, name matches and existing rules. A match on
     // amount alone is a one-off guess and mustn't send every future purchase there.
-    if ((d !== suggested || t.why === 'rule' || t.byName) && e.frequency !== 'once') rules[t.payee] = e.id; // never send later purchases to a one-off
+    // Never to a one-off (later purchases don't belong to it) or a catch-all (where they go anyway).
+    if ((chosen !== suggested || t.why === 'rule' || t.byName) && e.frequency !== 'once' && !isCatchAll(e)) rules[t.payee] = e.id;
     logged++;
   }
 
@@ -1452,7 +1583,7 @@ async function applyImport() {
   state.settings.ignoredTxns = ignored.slice(-5000);
   state.settings.bankAccounts = uniqueCI([imp.account, ...(state.settings.bankAccounts || [])]);
   await saveSettings();
-  const added = imp.newGroups.size + made.size;
+  const added = imp.newGroups.size + made.size + createdCatch;
   imp = null;
   closeSheet();
   await reload();

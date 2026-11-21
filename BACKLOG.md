@@ -67,3 +67,4 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-21 | Undo bank imports: also deletes entries that imports added (choose which to keep) and clears the ignored list |
 | 2026-11-21 | "Variable (no set schedule)" frequency (format v4) |
 | 2026-11-21 | Bank import: "+ New entry" from any transaction; "No entries yet" in empty lists |
+| 2026-11-22 | Bank import: everything imports by default (recurring payees get entries; the rest go to an "Everyday spending" catch-all per account); Payees → Move to… on entries |
