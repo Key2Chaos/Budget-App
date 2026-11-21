@@ -87,6 +87,9 @@ No backend, no account. All data lives on the device in IndexedDB.
     it's saved in each payment's note. Clear the name to go back to the bank's text.
   - **Renaming an account** (Settings → Bank statements → Rename) is safe: transactions are still
     recognised, and entries using the old name as their payment method are updated.
+  - **One row per payee.** Unmatched transactions are grouped by payee (tap the row's count to see
+    them); one choice covers them all. Give two payees the same name, or pick a new entry another payee
+    is getting (*New in this import*), to put them together.
   - **Everything imports by default.** Matches go to their entry, payees that look recurring get an
     entry of their own, and everything else goes to the account's catch-all entry, *Everyday
     spending – <account>* (or *Other income – <account>* for money in). Change any row before

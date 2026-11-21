@@ -631,7 +631,7 @@ async function renderSettings() {
     </section>
     <p class="fine pad-x">Download a CSV from your bank's website or app first. The file is read on this device only.
       ${Object.keys(state.settings.payeeNames || {}).length ? `${Object.keys(state.settings.payeeNames).length} payees with your own names.` : ''}
-      To name a payee, tap <strong>Name</strong> next to one of its transactions when importing.</p>
+      To name a payee, tap <strong>Name</strong> next to it when importing.</p>
 
     <div class="group-title">Storage</div>
     <section class="card list">
@@ -1187,16 +1187,21 @@ function openUndoImports() {
 }
 
 /** Give a payee your own name, used on the import screen, for matching and in payment notes. */
-async function renamePayee(key) {
+async function renamePayee(keys) {
+  keys = [].concat(keys); // a row on the import screen can stand for several payees with the same name
+  const key = keys[0];
   const names = { ...(state.settings.payeeNames || {}) };
   const sample = imp?.txns.find(t => t.payee === key);
   const current = names[key] || (sample?.oldPayee && names[sample.oldPayee]) || '';
-  const input = prompt(`Your name for “${sample?.description || key}”. It's used for this payee from now on. Leave blank to use the bank's text.`,
+  const input = prompt(`Your name for “${sample?.description || key}”. It's used for this payee from now on. Give two payees the same name to put them together. Leave blank to use the bank's text.`,
     current || Bank.payeeName(key));
   if (input == null) return;
   const name = cleanLabel(input);
-  if (sample?.oldPayee) delete names[sample.oldPayee];
-  if (name) names[key] = name; else delete names[key];
+  for (const k of keys) {
+    const s = imp?.txns.find(t => t.payee === k);
+    if (s?.oldPayee) delete names[s.oldPayee];
+    if (name) names[k] = name; else delete names[k];
+  }
   state.settings.payeeNames = names;
   await saveSettings();
   toast(name ? `Named “${name}”` : 'Name removed');
@@ -1295,22 +1300,41 @@ function openImport() {
   const entriesBy = type => state.entries.filter(e => e.type === type && !isCatchAll(e)).sort((a, b) => a.name.localeCompare(b.name));
   const groupOf = new Map(imp.recurring.flatMap(g => g.txns.map(t => [t.id, g])));
 
-  const select = t => {
-    const d = imp.decision.get(t.id) || '';
+  // New entries this import will add, so other payees can be put in with them
+  const txById = new Map(imp.txns.map(t => [t.id, t]));
+  const pending = new Map();
+  for (const [id, v] of imp.decision) {
+    if (pending.has(v)) continue;
+    const t = txById.get(id);
+    if (v.startsWith('new:')) {
+      const g = imp.recurring.find(x => x.key === v.slice(4));
+      if (g) pending.set(v, { label: `${g.name} (${C.FREQ[g.frequency].label.toLowerCase()})`, out: g.type === 'expense' });
+    } else if (v.startsWith('make:')) {
+      const lead = imp.txns.find(x => x.payee === v.slice(5)) || t;
+      pending.set(v, { label: lead.name || Bank.payeeName(v.slice(5)), out: t.amount < 0 });
+    }
+  }
+
+  // `d` is the current choice (null when the transactions in a payee row differ)
+  const select = (t, { attr = `data-txn="${t.id}"`, d = imp.decision.get(t.id) || '', many = false, label = 'What is this?' } = {}) => {
     const g = groupOf.get(t.id);
-    const opt = (v, label) => `<option value="${esc(v)}" ${d === v ? 'selected' : ''}>${esc(label)}</option>`;
+    const opt = (v, text) => `<option value="${esc(v)}" ${d === v ? 'selected' : ''}>${esc(text)}</option>`;
     const list = type => entriesBy(type).map(e => opt(e.id, e.name)).join('')
       || '<option disabled>No entries yet</option>';
     // A new entry for this payee: the recurring one spotted, else one with no set schedule (or a
     // one-off if it's the only transaction from them)
-    const make = g ? opt(`new:${g.key}`, `+ New entry: ${g.name} (${C.FREQ[g.frequency].label.toLowerCase()})`)
-      : opt(`make:${t.payee}`, `+ New entry: ${t.name || Bank.payeeName(t.payee)}`);
-    return `<select data-txn="${t.id}" aria-label="What is this?">
+    const own = g ? `new:${g.key}` : `make:${t.payee}`;
+    const make = g ? opt(own, `+ New entry: ${g.name} (${C.FREQ[g.frequency].label.toLowerCase()})`)
+      : opt(own, `+ New entry: ${t.name || Bank.payeeName(t.payee)}`);
+    const others = [...pending].filter(([v, p]) => v !== own && p.out === t.amount < 0);
+    return `<select ${attr} aria-label="${esc(label)}">
+      ${d == null ? '<option value="mixed" selected disabled>Mixed — choose one for all</option>' : ''}
       ${opt('', 'Skip for now')}
-      ${opt('ignore', 'Ignore this one')}
+      ${opt('ignore', many ? 'Ignore these' : 'Ignore this one')}
       ${opt('ignore-payee', 'Always ignore this payee')}
       ${opt(`catch:${t.amount < 0 ? 'expense' : 'income'}`, catchName(imp.account, t.amount < 0 ? 'expense' : 'income'))}
       ${make}
+      ${others.length ? `<optgroup label="New in this import">${others.map(([v, p]) => opt(v, p.label)).join('')}</optgroup>` : ''}
       <optgroup label="${t.amount < 0 ? 'Expenses' : 'Income'}">${list(t.amount < 0 ? 'expense' : 'income')}</optgroup>
       <optgroup label="${t.amount < 0 ? 'Income (as a refund)' : 'Expenses (as a refund)'}">${list(t.amount < 0 ? 'income' : 'expense')}</optgroup>
     </select>`;
@@ -1334,6 +1358,46 @@ function openImport() {
   const suggested = imp.txns.filter(t => t.action);
   const rest = imp.txns.filter(t => !t.action);
   const chosen = [...imp.decision.values()].filter(v => v && !v.startsWith('ignore')).length;
+
+  // Unmatched transactions, one row per payee (payees you've given the same name share a row):
+  // one choice covers all of them.
+  const pgroups = new Map();
+  for (const t of rest) {
+    const name = t.name || Bank.payeeName(t.payee);
+    const key = `${t.amount < 0 ? 'out' : 'in'}|${name.toLowerCase()}`;
+    if (!pgroups.has(key)) pgroups.set(key, { key, name, named: !!t.name, txns: [], payees: [] });
+    const pg = pgroups.get(key);
+    pg.txns.push(t);
+    if (!pg.payees.includes(t.payee)) pg.payees.push(t.payee);
+  }
+  imp.pgroups = pgroups;
+  imp.openGroups ||= new Set();
+  const payeeRow = pg => {
+    const ts = pg.txns, t0 = ts[0], one = ts.length === 1;
+    const ds = new Set(ts.map(t => imp.decision.get(t.id) || ''));
+    const d = ds.size === 1 ? [...ds][0] : null;
+    const total = ts.reduce((s, t) => s + t.amount, 0);
+    const raws = [...new Set(ts.map(t => t.description))];
+    const showName = pg.named || !one;
+    const linked = ts.filter(t => imp.links.get(t.id)).length;
+    const amt = (a, cls = '') => `<span class="imp-amt ${cls} ${a < 0 ? 'neg' : 'pos'}">${a < 0 ? '−' : '+'}${money(Math.abs(a))}</span>`;
+    return `<div class="imp-row imp-payee ${d && d !== 'mixed' && !d.startsWith('ignore') ? 'chosen' : ''} ${d?.startsWith('ignore') ? 'ignored' : ''}">
+      <div class="imp-top">
+        <span class="imp-date">${one ? esc(fmtDate(t0.date)) : `${ts.length} ×`}</span>
+        <span class="imp-desc">${showName ? `<span class="imp-name">${esc(pg.name)}</span><span class="imp-raw">${esc(raws[0])}${raws.length > 1 ? ` + ${raws.length - 1} more` : ''}</span>` : esc(t0.description)}</span>
+        ${amt(total)}
+      </div>
+      <div class="imp-bottom"><button type="button" class="link imp-rename" data-rename-group="${esc(pg.key)}"
+        aria-label="Rename ${esc(showName ? pg.name : t0.description)}">${pg.named ? 'Rename' : 'Name'}</button>${linked ? `<span class="pill">${linked} already logged</span>` : ''}${select(t0, {
+        attr: `data-pgroup="${esc(pg.key)}"`, d, many: !one, label: `What is ${showName ? pg.name : t0.description}?` })}</div>
+      ${one ? '' : `<details class="imp-list" data-pg="${esc(pg.key)}" ${imp.openGroups.has(pg.key) ? 'open' : ''}>
+        <summary>${ts.length} transactions · ${esc(fmtDate(ts.at(-1).date))} – ${esc(fmtDate(t0.date))}</summary>
+        ${ts.map(t => `<div class="imp-sub"><span class="imp-date">${esc(fmtDate(t.date))}</span>
+          <span class="imp-sub-desc">${esc(t.description)}</span>${amt(t.amount)}</div>`).join('')}
+      </details>`}
+    </div>`;
+  };
+  const payeeList = [...pgroups.values()].sort((a, b) => b.txns.length - a.txns.length || a.name.localeCompare(b.name));
 
   sheet.innerHTML = `
   <div id="import">
@@ -1375,12 +1439,12 @@ function openImport() {
       ${suggested.length ? `<div class="group-title">Matched (${suggested.length})</div>
       <section class="card">${suggested.map(txRow).join('')}</section>` : ''}
 
-      ${rest.length ? `<div class="group-title">Not matched (${rest.length})
+      ${rest.length ? `<div class="group-title">Not matched (${payeeList.length} payee${payeeList.length === 1 ? '' : 's'}, ${rest.length} transaction${rest.length === 1 ? '' : 's'})
         <button type="button" class="link small-link" data-ignore-rest>Ignore all of these</button></div>
       <p class="fine pad-x">These go to <strong>${esc(catchName(imp.account, 'expense'))}</strong> (money out) or
         <strong>${esc(catchName(imp.account, 'income'))}</strong> (money in) unless you choose something else.
-        You can move a payee into its own entry later from that entry's screen.</p>
-      <section class="card">${rest.map(txRow).join('')}</section>` : ''}
+        Nothing here needs sorting now — give two payees the same name to put them together, or move them later from that entry.</p>
+      <section class="card">${payeeList.map(payeeRow).join('')}</section>` : ''}
 
       ${!imp.txns.length ? '<p class="empty-small">Nothing new in this file.</p>' : ''}
       <p class="fine pad-x">Matched transactions are logged as payments on that entry. Payees you choose yourself, or that
@@ -1391,11 +1455,16 @@ function openImport() {
   </div>`;
 
   const root = $('#import');
+  root.addEventListener('toggle', ev => {
+    const det = ev.target.closest?.('details[data-pg]');
+    if (det) det.open ? imp.openGroups.add(det.dataset.pg) : imp.openGroups.delete(det.dataset.pg);
+  }, true);
   root.addEventListener('change', ev => {
-    const s = ev.target.closest('select[data-txn]');
+    const s = ev.target.closest('select[data-txn], select[data-pgroup]');
     if (s) {
       const v = s.value;
-      imp.decision.set(s.dataset.txn, v);
+      if (s.dataset.pgroup) imp.pgroups.get(s.dataset.pgroup)?.txns.forEach(x => imp.decision.set(x.id, v));
+      else imp.decision.set(s.dataset.txn, v);
       // A new entry takes this payee's other undecided transactions too
       if (v.startsWith('new:')) {
         const g = imp.recurring.find(x => x.key === v.slice(4));
@@ -1409,6 +1478,9 @@ function openImport() {
           if (x.payee === v.slice(5) && (!cur || cur.startsWith('catch:'))) imp.decision.set(x.id, v);
         });
       }
+      // A recurring payee whose transactions were all sent elsewhere isn't added as an entry
+      const used = new Set(imp.decision.values());
+      for (const k of [...imp.newGroups]) if (!used.has(`new:${k}`)) { imp.newGroups.delete(k); imp.offGroups.add(k); }
       return openImportKeepScroll();
     }
     if (ev.target.id === 'impAccountPick') {
@@ -1446,9 +1518,9 @@ function openImport() {
       }
       return openImportKeepScroll();
     }
-    const rn = t.closest('[data-rename-payee]');
+    const rn = t.closest('[data-rename-payee], [data-rename-group]');
     if (rn) {
-      await renamePayee(rn.dataset.renamePayee);
+      await renamePayee(rn.dataset.renameGroup ? imp.pgroups.get(rn.dataset.renameGroup).payees : rn.dataset.renamePayee);
       buildImport();
       return openImportKeepScroll();
     }
@@ -1503,8 +1575,9 @@ async function applyImport() {
     const one = txns.length === 1;
     const frequency = one ? 'once' : 'irregular';
     const start = txns[0].date;
+    const lead = txns.find(t => t.payee === payee) || txns[0]; // other payees may have been put in with it
     changed.set(id, {
-      id, type: txns[0].amount < 0 ? 'expense' : 'income', name: txns[0].name || Bank.payeeName(payee), category: '',
+      id, type: lead.amount < 0 ? 'expense' : 'income', name: lead.name || Bank.payeeName(payee), category: '',
       method: accountName(imp.account), frequency, startDate: start, contractEnd: null, endsAtExpiry: false, endDate: null,
       notes: `Added from a bank import (${payee})`, tags: [], fromImport: true,
       prices: [{ from: start, amount: one ? Math.abs(txns[0].amount) : null, frequency }],

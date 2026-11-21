@@ -234,9 +234,11 @@ test('with no entries yet, any transaction can start a new entry', async ({ page
   await chooseFile(page, 'commbank-credit-card-padded.csv');
   const grocer = txn(page, 'GROCER 0412');
   await expect(grocer.locator('option[disabled]').first()).toHaveText('No entries yet');
-  // Two purchases from the same shop: picking one takes the other too, as a "no set schedule" entry
+  // Two purchases from the same shop share a row, and become a "no set schedule" entry
+  await expect(grocer).toContainText('2 ×');
+  await expect(grocer).toContainText('GROCER 0398');                     // listed under it
   await grocer.locator('select').selectOption({ label: '+ New entry: Grocer' });
-  await expect(txn(page, 'GROCER 0398').locator('select option:checked')).toHaveText('+ New entry: Grocer');
+  await expect(grocer.locator('select option:checked')).toHaveText('+ New entry: Grocer');
   // A one-off
   await txn(page, 'CAFE EXAMPLE').locator('select').selectOption({ label: '+ New entry: Cafe Example' });
   // A recurring payee offers its schedule
@@ -252,6 +254,38 @@ test('with no entries yet, any transaction can start a new entry', async ({ page
   await expect(row(page, 'Grocer')).toContainText('Last $82.10');
   await expect(row(page, 'Streamco')).toContainText('Monthly');
   await expect(row(page, 'Cafe Example')).toContainText('$4.50');
+});
+
+test('unmatched: one row per payee; giving two payees the same name puts them together', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-credit-card.csv');
+  const google = txn(page, 'GOOGLE');
+  await expect(google).toHaveCount(1);
+  await expect(google).toContainText('3 ×');
+  await expect(google).toContainText('−$13.47');
+  await google.locator('summary').click();
+  await expect(google.locator('.imp-sub')).toHaveCount(3);
+  await expect(google.locator('.imp-sub').first()).toBeVisible();
+
+  const nameIt = async text => {
+    page.answers.push('Shopping');
+    await txn(page, text).getByRole('button', { name: /^(Rename|Name)/ }).click();
+  };
+  await nameIt('KMART');
+  await nameIt('WOOLWORTHS');
+  const shopping = imp(page).locator('.imp-payee', { has: page.locator('.imp-name', { hasText: 'Shopping' }) });
+  await expect(shopping).toHaveCount(1);
+  await expect(shopping).toContainText('2 ×');
+  await expect(google.locator('details')).toHaveAttribute('open', '');     // stays open across redraws
+  await page.screenshot({ path: test.info().outputPath('import-payees.png'), fullPage: true });
+
+  await shopping.locator('select').selectOption({ label: '+ New entry: Shopping' });
+  // Other payees can now be put in with it
+  await expect(google.locator('optgroup[label="New in this import"] option', { hasText: 'Shopping' })).toHaveCount(1);
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+  await editEntry(page, 'Shopping');
+  await expect(page.locator('#payments .pay-row')).toHaveCount(2);
 });
 
 test('everything imports by default; payees can be moved out of the catch-all later', async ({ page }) => {
