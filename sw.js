@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION whenever you deploy changes so phones pick them up.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `budget-${VERSION}`;
 const ASSETS = [
   './',
@@ -10,6 +10,7 @@ const ASSETS = [
   './js/db.js',
   './js/calc.js',
   './js/chart.js',
+  './js/schema.js',
   './icons/icon.svg',
   './icons/apple-touch-icon.png',
   './icons/icon-192.png',

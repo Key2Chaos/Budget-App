@@ -52,6 +52,36 @@ On the iPhone, open the URL in **Safari** → Share → **Add to Home Screen**.
 Bump `VERSION` in `sw.js` each time you deploy. The installed app picks up the new version on its
 next launch or the one after.
 
+## Keeping old backups working
+
+Any backup ever exported from the app must keep importing into every future version. The same goes
+for data already saved on a phone when the app updates.
+
+**How it works**
+- Every backup records a format `version`. The current one is `SCHEMA_VERSION` in
+  [js/schema.js](js/schema.js).
+- Imports and app start-up both go through `migrateBackup()`. It upgrades older formats one step at
+  a time, then fills in defaults for any missing fields. For example, backups made before tags
+  existed get an empty tag list.
+- Fields the app doesn't recognise are kept rather than dropped. A damaged entry is skipped and
+  reported; it doesn't stop the rest of the import.
+- A backup from a *newer* app version is refused with a "please update" message rather than being
+  half-imported.
+- `tests/fixtures/` holds a real backup in every format the app has used. `node tests/run.mjs`
+  checks that each one imports with nothing lost, calculates correctly, and survives export →
+  import. The tests run before every commit (pre-commit hook) and on GitHub after every push.
+
+**When you change the data**
+
+| Change | What to do |
+| --- | --- |
+| Add an optional field | Give it a default in `normalizeEntry()`. No version bump. |
+| Rename, remove or change the meaning of a field | 1. Export a backup from the *current* app and save it as `tests/fixtures/v<N>-<date>-<description>.json`. 2. Bump `SCHEMA_VERSION`. 3. Add a step to `MIGRATIONS` that upgrades the old shape. |
+| IndexedDB stores (`js/db.js`) | Only ever *add* stores or indexes in `onupgradeneeded`. Never delete them. |
+
+Never edit or delete an existing fixture or migration step. They're the record of what old backups
+look like. Use made-up data in fixtures, never your real budget.
+
 ## Keeping secrets out of the repo
 
 The repo is public, so nothing private goes in it. Your budget data never does: it lives on the phone.
@@ -91,6 +121,8 @@ ask for the history to be rewritten if you also want it gone from old commits.
 | `js/calc.js` | Pure date/money logic (frequencies, price history, monthly totals) |
 | `js/chart.js` | Dependency-free SVG chart |
 | `js/db.js` | IndexedDB wrapper |
+| `js/schema.js` | Backup format version, migrations, validation |
+| `tests/` | `run.mjs` test suite + `fixtures/` (sample backups from every format) |
 | `sw.js` | Offline cache |
 | `tools/make_icons.py` | Regenerates the PNG icons |
 

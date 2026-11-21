@@ -1,6 +1,7 @@
 import { db } from './db.js';
 import * as C from './calc.js';
 import { buildChart } from './chart.js';
+import { APP_ID, SCHEMA_VERSION, normalizeTags, migrateBackup, buildBackup } from './schema.js';
 
 // ---------- Constants ----------
 const CATEGORIES = {
@@ -73,15 +74,6 @@ function toast(msg) {
 }
 
 // ---------- Tags ----------
-/** Trim, collapse whitespace, cap length; de-dupe case-insensitively keeping first spelling. */
-function normalizeTags(list) {
-  const seen = new Set(), out = [];
-  for (const raw of list || []) {
-    const t = String(raw ?? '').replace(/^#/, '').replace(/\s+/g, ' ').trim().slice(0, 30);
-    if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); out.push(t); }
-  }
-  return out;
-}
 const hasTag = (e, t) => (e.tags || []).some(x => x.toLowerCase() === t.toLowerCase());
 
 /** All tags in use, most-used first. */
@@ -638,7 +630,7 @@ async function deleteEntry(entry) {
 
 // ---------- Backup ----------
 async function exportBackup() {
-  const payload = { app: 'budget-pwa', version: 1, exportedAt: new Date().toISOString(), settings: state.settings, entries: state.entries };
+  const payload = buildBackup(state.entries, state.settings);
   const name = `budget-backup-${C.todayISO()}.json`;
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const file = new File([blob], name, { type: 'application/json' });
@@ -663,14 +655,13 @@ async function exportBackup() {
 
 async function importBackup(file) {
   try {
-    const data = JSON.parse(await file.text());
-    if (data.app !== 'budget-pwa' || !Array.isArray(data.entries)) throw new Error('This doesn’t look like a Budget backup file.');
-    const valid = data.entries
-      .filter(e => e && e.id && e.name && e.startDate && Array.isArray(e.prices) && e.prices.length && C.FREQ[e.frequency])
-      .map(e => ({ ...e, tags: normalizeTags(e.tags) }));
-    if (!confirm(`Import ${valid.length} entries? Entries already on this device with the same ID will be replaced.`)) return;
+    let data;
+    try { data = JSON.parse(await file.text()); } catch { throw new Error('The file isn’t valid JSON.'); }
+    const { entries: valid, settings, skipped } = migrateBackup(data);
+    const skipNote = skipped ? `\n\n${skipped} damaged entr${skipped === 1 ? 'y' : 'ies'} will be skipped.` : '';
+    if (!confirm(`Import ${valid.length} entries? Entries already on this device with the same ID will be replaced.${skipNote}`)) return;
     await db.putEntries(valid);
-    if (data.settings?.currency && !state.entries.length) { state.settings.currency = data.settings.currency; await saveSettings(); }
+    if (settings.currency && !state.entries.length) { state.settings.currency = settings.currency; fmtCache.clear(); await saveSettings(); }
     await reload();
     toast(`Imported ${valid.length} entries`);
   } catch (e) {
@@ -789,11 +780,19 @@ $('#addBtn').addEventListener('click', () => openSheet());
 // ---------- Boot ----------
 (async function init() {
   try {
-    const saved = await db.getSettings();
-    if (saved) Object.assign(state.settings, saved);
-    state.entries = await db.allEntries();
+    const saved = (await db.getSettings()) || {};
+    const stored = await db.allEntries();
+    // Data saved by an older version of the app goes through the same upgrade path as old backups.
+    const { entries, skipped } = migrateBackup({ app: APP_ID, version: saved.schemaVersion ?? 1, settings: saved, entries: stored });
+    Object.assign(state.settings, saved);
+    state.entries = entries;
+    const before = new Map(stored.map(e => [String(e.id), JSON.stringify(e)]));
+    const changed = entries.filter(e => before.get(e.id) !== JSON.stringify(e));
+    if (changed.length) await db.putEntries(changed);
+    if (skipped) console.warn(`${skipped} stored entries could not be read and were left untouched.`);
+    if (state.settings.schemaVersion !== SCHEMA_VERSION) { state.settings.schemaVersion = SCHEMA_VERSION; await saveSettings(); }
   } catch (e) {
-    view.innerHTML = `<p class="empty-small">Couldn’t open local storage (${esc(e.message)}). Private Browsing may block it.</p>`;
+    view.innerHTML = `<p class="empty-small">Couldn’t load your data: ${esc(e.message)}</p>`;
     return;
   }
   render();

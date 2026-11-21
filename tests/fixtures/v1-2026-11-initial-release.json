@@ -1,0 +1,168 @@
+{
+  "app": "budget-pwa",
+  "version": 1,
+  "exportedAt": "2026-11-21T10:00:00.000Z",
+  "settings": {
+    "currency": "GBP",
+    "lastBackup": null
+  },
+  "entries": [
+    {
+      "id": "f1a1e0c2-0001-4000-8000-000000000001",
+      "type": "income",
+      "name": "Salary",
+      "category": "Salary",
+      "method": "Bank transfer",
+      "frequency": "monthly",
+      "startDate": "2024-09-28",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "prices": [
+        { "from": "2024-09-28", "amount": 2650 },
+        { "from": "2025-09-28", "amount": 2780 },
+        { "from": "2026-08-28", "amount": 2950 }
+      ],
+      "createdAt": "2026-11-21T09:00:00.000Z",
+      "updatedAt": "2026-11-21T09:00:00.000Z"
+    },
+    {
+      "id": "f1a1e0c2-0001-4000-8000-000000000002",
+      "type": "expense",
+      "name": "Rent",
+      "category": "Housing",
+      "method": "Standing order",
+      "frequency": "monthly",
+      "startDate": "2024-09-01",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "Landlord: J. Smith",
+      "prices": [
+        { "from": "2024-09-01", "amount": 950 },
+        { "from": "2025-11-01", "amount": 1010 }
+      ],
+      "createdAt": "2026-11-21T09:00:00.000Z",
+      "updatedAt": "2026-11-21T09:00:00.000Z"
+    },
+    {
+      "id": "f1a1e0c2-0001-4000-8000-000000000003",
+      "type": "expense",
+      "name": "Phone contract",
+      "category": "Phone & Internet",
+      "method": "Direct debit",
+      "frequency": "monthly",
+      "startDate": "2024-12-09",
+      "contractEnd": "2026-12-15",
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "prices": [{ "from": "2024-12-09", "amount": 32 }],
+      "createdAt": "2026-11-21T09:00:00.000Z",
+      "updatedAt": "2026-11-21T09:00:00.000Z"
+    },
+    {
+      "id": "f1a1e0c2-0001-4000-8000-000000000004",
+      "type": "expense",
+      "name": "Gym",
+      "category": "Health",
+      "method": "Debit card",
+      "frequency": "monthly",
+      "startDate": "2025-08-05",
+      "contractEnd": "2026-08-05",
+      "endsAtExpiry": true,
+      "endDate": null,
+      "notes": "",
+      "prices": [{ "from": "2025-08-05", "amount": 35 }],
+      "createdAt": "2026-11-21T09:00:00.000Z",
+      "updatedAt": "2026-11-21T09:00:00.000Z"
+    },
+    {
+      "id": "f1a1e0c2-0001-4000-8000-000000000005",
+      "type": "expense",
+      "name": "Car insurance",
+      "category": "Insurance",
+      "method": "Credit card",
+      "frequency": "yearly",
+      "startDate": "2025-02-18",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "prices": [
+        { "from": "2025-02-18", "amount": 540 },
+        { "from": "2026-02-18", "amount": 612 }
+      ],
+      "createdAt": "2026-11-21T09:00:00.000Z",
+      "updatedAt": "2026-11-21T09:00:00.000Z"
+    },
+    {
+      "id": "f1a1e0c2-0001-4000-8000-000000000006",
+      "type": "expense",
+      "name": "Groceries",
+      "category": "Groceries",
+      "method": "Debit card",
+      "frequency": "weekly",
+      "startDate": "2024-09-02",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "prices": [
+        { "from": "2024-09-02", "amount": 70 },
+        { "from": "2025-12-02", "amount": 82 }
+      ],
+      "createdAt": "2026-11-21T09:00:00.000Z",
+      "updatedAt": "2026-11-21T09:00:00.000Z"
+    },
+    {
+      "id": "f1a1e0c2-0001-4000-8000-000000000007",
+      "type": "expense",
+      "name": "Netflix",
+      "category": "Subscriptions",
+      "method": "Credit card",
+      "frequency": "monthly",
+      "startDate": "2024-09-04",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": "2026-06-04",
+      "notes": "",
+      "prices": [{ "from": "2024-09-04", "amount": 10.99 }],
+      "createdAt": "2026-11-21T09:00:00.000Z",
+      "updatedAt": "2026-11-21T09:00:00.000Z"
+    },
+    {
+      "id": "f1a1e0c2-0001-4000-8000-000000000008",
+      "type": "income",
+      "name": "Freelance design job",
+      "category": "Freelance",
+      "method": "PayPal",
+      "frequency": "once",
+      "startDate": "2026-09-12",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "prices": [{ "from": "2026-09-12", "amount": 450 }],
+      "createdAt": "2026-11-21T09:00:00.000Z",
+      "updatedAt": "2026-11-21T09:00:00.000Z"
+    },
+    {
+      "id": "f1a1e0c2-0001-4000-8000-000000000009",
+      "type": "expense",
+      "name": "Council tax",
+      "category": "",
+      "method": "",
+      "frequency": "fourweekly",
+      "startDate": "2025-04-01",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "prices": [{ "from": "2025-04-01", "amount": 148.5 }],
+      "createdAt": "2026-11-21T09:00:00.000Z",
+      "updatedAt": "2026-11-21T09:00:00.000Z"
+    }
+  ]
+}

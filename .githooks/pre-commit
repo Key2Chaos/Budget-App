@@ -32,4 +32,16 @@ if [ $fail -ne 0 ]; then
   echo "Then add the file to .gitignore if it should never be committed."
   exit 1
 fi
+
+# 3) Tests: old backups must still import, maths must still be right
+if command -v node >/dev/null 2>&1; then
+  if ! out=$(node tests/run.mjs 2>&1); then
+    echo "$out" | grep -E '^✖|Error|expected|actual|add ' | head -20
+    echo ""
+    echo "✋ Tests failed — commit stopped. Run 'node tests/run.mjs' for details."
+    exit 1
+  fi
+else
+  echo "⚠ node not found — skipping tests (GitHub will still run them)."
+fi
 exit 0

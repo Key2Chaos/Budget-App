@@ -1,0 +1,100 @@
+{
+  "app": "budget-pwa",
+  "version": 1,
+  "exportedAt": "2026-11-21T12:00:00.000Z",
+  "settings": {
+    "currency": "USD",
+    "lastBackup": "2026-11-01T08:30:00.000Z"
+  },
+  "entries": [
+    {
+      "id": "a2b2c3d4-0002-4000-8000-000000000001",
+      "type": "expense",
+      "name": "Electricity & gas",
+      "category": "Utilities",
+      "method": "Direct debit",
+      "frequency": "monthly",
+      "startDate": "2024-09-15",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "tags": ["shared", "essential"],
+      "prices": [
+        { "from": "2024-09-15", "amount": 92 },
+        { "from": "2025-07-15", "amount": 128 },
+        { "from": "2026-06-15", "amount": 115 }
+      ],
+      "createdAt": "2026-11-21T11:00:00.000Z",
+      "updatedAt": "2026-11-21T11:00:00.000Z"
+    },
+    {
+      "id": "a2b2c3d4-0002-4000-8000-000000000002",
+      "type": "expense",
+      "name": "Spotify",
+      "category": "Subscriptions",
+      "method": "Apple Pay",
+      "frequency": "monthly",
+      "startDate": "2025-05-07",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "tags": ["streaming"],
+      "prices": [{ "from": "2025-05-07", "amount": 11.99 }],
+      "createdAt": "2026-11-21T11:00:00.000Z",
+      "updatedAt": "2026-11-21T11:00:00.000Z"
+    },
+    {
+      "id": "a2b2c3d4-0002-4000-8000-000000000003",
+      "type": "income",
+      "name": "Side project",
+      "category": "Freelance",
+      "method": "Bank transfer",
+      "frequency": "quarterly",
+      "startDate": "2025-01-10",
+      "contractEnd": "2027-01-10",
+      "endsAtExpiry": true,
+      "endDate": null,
+      "notes": "Invoice each quarter",
+      "tags": ["work", "taxable"],
+      "prices": [{ "from": "2025-01-10", "amount": 900 }],
+      "createdAt": "2026-11-21T11:00:00.000Z",
+      "updatedAt": "2026-11-21T11:00:00.000Z"
+    },
+    {
+      "id": "a2b2c3d4-0002-4000-8000-000000000004",
+      "type": "expense",
+      "name": "Window cleaner",
+      "category": "Housing",
+      "method": "Cash",
+      "frequency": "halfyearly",
+      "startDate": "2025-03-20",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "tags": [],
+      "prices": [{ "from": "2025-03-20", "amount": 40 }],
+      "createdAt": "2026-11-21T11:00:00.000Z",
+      "updatedAt": "2026-11-21T11:00:00.000Z"
+    },
+    {
+      "id": "a2b2c3d4-0002-4000-8000-000000000005",
+      "type": "expense",
+      "name": "Dog walker",
+      "category": "Other",
+      "method": "Bank transfer",
+      "frequency": "fortnightly",
+      "startDate": "2026-01-06",
+      "contractEnd": null,
+      "endsAtExpiry": false,
+      "endDate": null,
+      "notes": "",
+      "tags": ["shared"],
+      "prices": [{ "from": "2026-01-06", "amount": 60 }],
+      "createdAt": "2026-11-21T11:00:00.000Z",
+      "updatedAt": "2026-11-21T11:00:00.000Z"
+    }
+  ]
+}
