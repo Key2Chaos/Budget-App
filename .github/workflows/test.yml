@@ -21,7 +21,8 @@ jobs:
 
   e2e:
     name: Browser tests (phone Chromium + iPhone WebKit)
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.55's browsers support Ubuntu 24.04 (not yet 26.04, now "latest")
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
