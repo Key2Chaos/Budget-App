@@ -69,3 +69,4 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-21 | Bank import: "+ New entry" from any transaction; "No entries yet" in empty lists |
 | 2026-11-22 | Bank import: everything imports by default (recurring payees get entries; the rest go to an "Everyday spending" catch-all per account); Payees → Move to… on entries |
 | 2026-11-22 | Bank import: unmatched transactions shown one row per payee; same name or same new entry puts payees together |
+| 2026-11-22 | Bank import fixes: a "Value Date" column is never read as the amount; preferred column names win (Transaction Date, Description); CR / DR amounts |

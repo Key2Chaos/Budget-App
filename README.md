@@ -58,7 +58,9 @@ No backend, no account. All data lives on the device in IndexedDB.
 - **Bank statement import** (Settings → Import bank statement): download a CSV from your bank and
   import it. Everything happens on the phone.
   - **Recognised automatically:** CommBank files (credit card and transaction/savings accounts),
-    plus most files with a header row (Date / Amount or Debit & Credit / Description).
+    plus most files with a header row (Date / Amount or Debit & Credit / Description). When a file
+    has both, *Transaction Date* is used rather than *Value Date*, and *Description* rather than
+    *Details*. Amounts marked **CR / DR** (e.g. `115.00 DR`) are read as money in / out.
   - **Dates:** day/month order is detected from the file. If the file could be read either way, you
     choose, with a preview.
   - **Matching** checks three things separately: the **name** (all or some of the entry's words), the

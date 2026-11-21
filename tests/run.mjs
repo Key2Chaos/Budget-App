@@ -405,6 +405,40 @@ test('files with a header row: Debit / Credit columns', () => {
   assert.deepEqual(B.toTransactions(rows, fmt, 'YMD').map(t => t.amount), [-4.5, 500]);
 });
 
+test('header row: "Value Date" is never the amount; preferred column names win', () => {
+  const rows = B.parseCSV(bankFile('value-date-debit-credit.csv'));
+  const fmt = B.detectFormat(rows);
+  assert.equal(fmt.date, 1, 'Transaction Date, not the earlier Value Date');
+  assert.equal(fmt.amount, -1, 'no Amount column: use Debit / Credit');
+  assert.equal(fmt.desc, 3, 'Description, not the earlier Details');
+  const txns = B.toTransactions(rows, fmt, 'DMY');
+  assert.deepEqual(txns.map(t => [t.date, t.amount, t.description]), [
+    ['2026-11-01', -17.99, 'NETFLIX.COM MELBOURNE'],
+    ['2026-11-04', 2500, 'SALARY ACME PTY LTD'],
+    ['2026-11-15', -115, 'ORIGIN ENERGY'],
+  ]);
+  assert.equal(txns[0].balance, 1482.01);
+  // "Debit Amount" / "Credit Amount" are debit and credit columns, not the amount
+  const w = B.detectFormat(B.parseCSV('Bank Account,Date,Narrative,Debit Amount,Credit Amount,Balance\n1,03/11/2026,COFFEE,4.50,,100\n'));
+  assert.deepEqual([w.amount, w.debit, w.credit, w.desc], [-1, 3, 4, 2]);
+});
+
+test('CR / DR amounts: DR is money out, CR money in, with or without a space', () => {
+  assert.equal(B.parseMoney('123.45 DR'), -123.45);
+  assert.equal(B.parseMoney('123.45DR'), -123.45);
+  assert.equal(B.parseMoney('$1,234.50 cr'), 1234.5);
+  assert.equal(B.parseMoney('DR 5.00'), -5);
+  assert.ok(Number.isNaN(B.parseMoney('CR')));
+  assert.ok(Number.isNaN(B.parseMoney('02/11/2026')), 'a date is not an amount');
+  const rows = B.parseCSV(bankFile('cr-dr-amounts.csv'));
+  const fmt = B.detectFormat(rows);
+  assert.ok(fmt, 'a headerless CR/DR file is recognised');
+  assert.deepEqual([fmt.date, fmt.amount, fmt.desc, fmt.balance], [0, 1, 2, 3]);
+  const txns = B.toTransactions(rows, fmt, 'DMY');
+  assert.deepEqual(txns.map(t => t.amount), [-115, 2500, -17.99]);
+  assert.equal(txns[0].balance, 3867.01);
+});
+
 test('payee keys ignore card numbers, dates, places', () => {
   assert.equal(B.payeeKey('NETFLIX.COM MELBOURNE AU AUS Card xx1234 Value Date: 02/11/2026'), 'NETFLIX COM MELBOURNE');
   assert.equal(B.payeeKey('Direct Debit 445566 ORIGIN ENERGY'), 'ORIGIN ENERGY');

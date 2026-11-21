@@ -67,16 +67,23 @@ export function parseDate(s, order) {
   return C.iso(date);
 }
 
-/** '-17.99', '+1,234.56', '$5.00', '(12.00)' → number (negative = money out). */
+/** A 'CR' or 'DR' marker before or after an amount: '123.45 DR' is money out, '500.00 CR' money in. */
+const CRDR = /^\s*(CR|DR)\.?\s*|\s*(CR|DR)\.?\s*$/i;
+
+/** '-17.99', '+1,234.56', '$5.00', '(12.00)', '123.45 DR', '500.00 CR' → number (negative = money out). */
 export function parseMoney(s) {
-  const t = String(s ?? '').trim();
-  if (!t) return NaN;
-  const neg = /^\(.*\)$/.test(t) || /^-|-$/.test(t.replace(/[$£€\s]/g, ''));
+  let t = String(s ?? '').trim();
+  if (!t || looksLikeDate(t)) return NaN; // a date is never an amount (e.g. a stray "Value Date" column)
+  const m = CRDR.exec(t);
+  const marker = m ? (m[1] || m[2]).toUpperCase() : null;
+  if (m) t = t.replace(CRDR, '').trim();
+  if (!/\d/.test(t)) return NaN;
+  const neg = marker ? marker === 'DR' : /^\(.*\)$/.test(t) || /^-|-$/.test(t.replace(/[$£€\s]/g, ''));
   const n = parseFloat(t.replace(/[^\d.]/g, ''));
   return Number.isFinite(n) ? (neg ? -n : n) : NaN;
 }
 
-const isMoney = s => /^[-+(]?\s*[$£€]?\s*[\d,]+(\.\d+)?\)?-?$/.test(String(s).trim());
+const isMoney = s => /^(?:(?:CR|DR)\.?\s*)?[-+(]?\s*[$£€]?\s*[\d,]+(\.\d+)?\)?-?(?:\s*(?:CR|DR)\.?)?$/i.test(String(s).trim());
 
 // ---------- Format detection ----------
 
@@ -90,14 +97,30 @@ export function detectFormat(rows) {
   const first = rows[0];
   const hasHeader = !looksLikeDate(first[0]) && first.some(c => /date/i.test(c));
   if (hasHeader) {
-    const h = first.map(c => c.toLowerCase());
-    const find = (...re) => h.findIndex(c => re.some(r => r.test(c)));
+    const h = first.map(c => c.toLowerCase().replace(/\s+/g, ' ').trim());
+    // The patterns are in order of preference: the first one that matches any column wins, so
+    // "Transaction Date" beats an earlier "Value Date", and "Description" beats "Details".
+    // Only the date can come from a column with "date" in its name ("Value Date" is not an amount).
+    const find = (...re) => {
+      for (const r of re) {
+        const i = h.findIndex(c => r.test(c) && !/date/.test(c));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const findDate = (...re) => {
+      for (const r of re) {
+        const i = h.findIndex(c => r.test(c));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
     const fmt = {
       bank: 'Bank', hasHeader: true,
-      date: find(/^date$/, /transaction date/, /date/),
-      amount: find(/^amount/, /value/),
-      debit: find(/debit|withdraw|money out/),
-      credit: find(/credit|deposit|money in/),
+      date: findDate(/^date$/, /^(transaction|trans|txn) date/, /^(posted|posting|booking) date/, /transaction date/, /date/),
+      amount: find(/^amount/, /^(transaction|trans|txn) amount/, /^value$/),
+      debit: find(/debit|withdraw|money out|paid out/),
+      credit: find(/credit|deposit|money in|paid in/),
       desc: find(/desc/, /narrat/, /details/, /payee/, /memo/, /particulars/),
       balance: find(/balance/),
     };
