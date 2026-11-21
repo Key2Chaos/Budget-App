@@ -316,6 +316,13 @@ form.is-once .recurring-only { display: none; }
 .tag-suggest:empty { display: none; }
 .tag-suggest .chip { font-size: 13px; padding: 4px 10px; color: var(--accent); }
 
+/* ---------- Manage labels ---------- */
+.chev { color: var(--muted); font-size: 22px; line-height: 1; }
+.manage-help { margin: 12px 4px 14px; }
+.label-row { gap: 8px; }
+.label-row .btn.small { flex: none; }
+.btn.small.danger { color: var(--neg); }
+
 /* ---------- Toast ---------- */
 #toast {
   position: fixed; left: 50%; z-index: 100;

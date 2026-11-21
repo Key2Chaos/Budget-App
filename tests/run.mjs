@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as C from '../js/calc.js';
-import { SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry } from '../js/schema.js';
+import { SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry, normalizeTags, cleanTag } from '../js/schema.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const fixtureDir = join(root, 'tests', 'fixtures');
@@ -153,6 +153,19 @@ test('damaged entries are skipped, not fatal; recoverable ones are repaired', ()
   assert.equal(fixed.prices[0].amount, 9.99);
   assert.equal(fixed.type, 'expense');
   assert.equal(fixed.contractEnd, null);
+});
+
+test('tags are tidied: lowercase, hyphenated, de-duplicated', () => {
+  assert.deepEqual(normalizeTags(['Tax Deductible', '#Work', 'work', '  cloud   storage ', 'a__b', '', null, '#']),
+    ['tax-deductible', 'work', 'cloud-storage', 'a-b']);
+  assert.equal(cleanTag('--Shared--'), 'shared');
+});
+
+test('category / method labels: whitespace tidied, nothing else lost', () => {
+  const e = normalizeEntry({ id: 'l', name: 'X', frequency: 'monthly', startDate: '2026-01-01',
+    category: '  Phone   &  Internet ', method: 'Credit card – Amex', prices: [{ from: '2026-01-01', amount: 1 }] });
+  assert.equal(e.category, 'Phone & Internet');
+  assert.equal(e.method, 'Credit card – Amex');
 });
 
 test('fields from a future version are preserved, not dropped', () => {

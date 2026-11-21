@@ -27,15 +27,24 @@ const MIGRATIONS = {
 const str = v => (typeof v === 'string' ? v : '');
 const isDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
-/** Trim, collapse whitespace, cap length; de-dupe case-insensitively keeping first spelling. */
+/** Tidy one tag: lowercase, no leading '#', spaces/underscores → hyphens ("Tax Deductible" → "tax-deductible"). */
+export function cleanTag(raw) {
+  return String(raw ?? '').toLowerCase().replace(/^#+/, '').trim()
+    .replace(/[\s_]+/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 30);
+}
+
+/** Tidy and de-duplicate a list of tags, keeping their order. */
 export function normalizeTags(list) {
-  const seen = new Set(), out = [];
+  const out = [];
   for (const raw of Array.isArray(list) ? list : []) {
-    const t = String(raw ?? '').replace(/^#/, '').replace(/\s+/g, ' ').trim().slice(0, 30);
-    if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); out.push(t); }
+    const t = cleanTag(raw);
+    if (t && !out.includes(t)) out.push(t);
   }
   return out;
 }
+
+/** Tidy a category / payment-method label: trim and collapse spaces. */
+export const cleanLabel = raw => String(raw ?? '').replace(/\s+/g, ' ').trim();
 
 /**
  * Bring one entry to the current shape, filling defaults for any missing optional fields.
@@ -70,8 +79,8 @@ export function normalizeEntry(raw) {
     id: String(raw.id),
     type: raw.type === 'income' ? 'income' : 'expense',
     name: str(raw.name).trim(),
-    category: str(raw.category).trim(),
-    method: str(raw.method).trim(),
+    category: cleanLabel(str(raw.category)),
+    method: cleanLabel(str(raw.method)),
     frequency: once ? 'once' : prices.at(-1).frequency, // latest period's; per-date logic uses the periods
     startDate: raw.startDate,
     contractEnd: !once && isDate(raw.contractEnd) ? raw.contractEnd : null,

@@ -26,6 +26,29 @@ No backend, no account. All data lives on the device in IndexedDB.
   backup file back in.
 - Works offline, supports dark mode, and respects the iPhone notch and home-indicator areas.
 
+## Labelling guide
+
+Each of the three labels has one job:
+
+| Label | Answers | How many | Style | Examples |
+| --- | --- | --- | --- | --- |
+| **Category** | *What is it?* | Exactly one, so the percentages add up to 100% | Title Case, broad (about 10–15 in total) | Housing, Subscriptions, Phone & Internet |
+| **Payment method** | *How does the money move?* | One | Sentence case. Add the card or account if useful | Direct debit, Credit card – Amex |
+| **Tags** | *Anything that cuts across categories* | Any number | lowercase, hyphenated | `shared`, `essential`, `tax-deductible`, `cancel-soon` |
+
+Quick test: if every entry needs exactly one answer, it's a category. If it's a yes or no, it's a tag.
+
+**Bundles and overlaps.** Netflix, Spotify, Apple One and iCloud all go under one category,
+*Subscriptions*. Use tags for what each one covers. For example, Apple One is tagged `bundle`,
+`streaming`, `music` and `cloud-storage`. "Where it goes → Tag" then shows Apple One under each of
+those tags. An entry with several tags counts towards each one.
+
+The app keeps labels consistent for you:
+- It matches what you type to the existing spelling, so "groceries" becomes "Groceries".
+- It tidies tags, so "Tax Deductible" becomes `tax-deductible`.
+- **Settings → Manage labels** lets you rename, merge or delete any category, method or tag across
+  all entries.
+
 ## Run locally
 
 No build step. Serve the folder with any static server:

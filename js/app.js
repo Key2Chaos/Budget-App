@@ -1,7 +1,7 @@
 import { db } from './db.js';
 import * as C from './calc.js';
 import { buildChart } from './chart.js';
-import { APP_ID, SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry, normalizeTags } from './schema.js';
+import { APP_ID, SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry, normalizeTags, cleanTag, cleanLabel } from './schema.js';
 
 // ---------- Constants ----------
 const CATEGORIES = {
@@ -14,6 +14,41 @@ const METHODS = ['Direct debit', 'Standing order', 'Debit card', 'Credit card', 
 const CURRENCIES = ['GBP', 'USD', 'EUR', 'AUD', 'CAD', 'NZD', 'CHF', 'SEK', 'NOK', 'DKK', 'JPY', 'INR', 'SGD', 'ZAR'];
 const FORECAST_MONTHS = 3;
 const TITLES = { overview: 'Overview', entries: 'Entries', settings: 'Settings' };
+const STARTER_TAGS = ['shared', 'essential', 'work', 'tax-deductible', 'cancel-soon', 'bundle', 'streaming', 'cloud-storage'];
+
+// ---------- Labels (category / payment method / tag) ----------
+const LABELS = {
+  category: { title: 'Categories', noun: 'category', field: 'category' },
+  method:   { title: 'Methods', noun: 'payment method', field: 'method' },
+  tag:      { title: 'Tags', noun: 'tag' },
+};
+const labelsOf = (kind, e) => (kind === 'tag' ? e.tags || [] : e[kind] ? [e[kind]] : []);
+
+/** Labels in use, with entry counts, most-used first. Matching ignores capitals. */
+function labelCounts(kind) {
+  const m = new Map();
+  for (const e of state.entries) for (const l of labelsOf(kind, e)) {
+    const k = l.toLowerCase();
+    const cur = m.get(k) || { name: l, n: 0 };
+    cur.n++; m.set(k, cur);
+  }
+  return [...m.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+}
+
+/** Unique (ignoring capitals) list, first spelling wins. */
+const uniqueCI = list => {
+  const seen = new Set();
+  return list.filter(x => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase()));
+};
+
+/** Snap typed text to an existing spelling: "groceries" → "Groceries" if that's already used. */
+function canonicalLabel(value, options) {
+  const v = cleanLabel(value).slice(0, 40);
+  if (!v) return '';
+  return options.find(o => o.toLowerCase() === v.toLowerCase()) || v;
+}
+const categoryOptions = type => uniqueCI([...labelCounts('category').map(x => x.name), ...CATEGORIES[type]]);
+const methodOptions = () => uniqueCI([...labelCounts('method').map(x => x.name), ...METHODS]);
 
 function guessCurrency() {
   const region = ((navigator.language || 'en-US').split('-')[1] || '').toUpperCase();
@@ -66,7 +101,11 @@ function relDays(n) {
 }
 
 function toast(msg) {
-  const t = $('#toast');
+  // Keep our own reference: the toast may get detached when the sheet's contents are replaced.
+  const t = (toast.el ||= $('#toast'));
+  // an open <dialog> sits above everything else, so show the toast inside it
+  const host = $('#sheet').open ? $('#sheet') : document.body;
+  if (t.parentElement !== host) host.append(t);
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toast._t);
@@ -379,6 +418,11 @@ async function renderSettings() {
         <div class="row-main"><div class="row-title">Currency</div></div>
         <select id="currency">${CURRENCIES.map(c => `<option ${c === state.settings.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
       </label>
+      <button class="row" data-action="manage-labels">
+        <div class="row-main"><div class="row-title">Manage labels</div>
+        <div class="row-sub">Rename, merge or delete categories, payment methods and tags</div></div>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
     </section>
 
     <div class="group-title">Backup &amp; iCloud</div>
@@ -474,9 +518,9 @@ function openSheet(entry = null) {
 
       <section class="card form">
         <label class="field"><span>Category</span>
-          <input name="category" list="dl-cat" placeholder="Choose or type" value="${esc(e.category)}" autocomplete="off"></label>
+          <input name="category" list="dl-cat" placeholder="Choose or type" value="${esc(e.category)}" autocomplete="off" maxlength="40"></label>
         <label class="field"><span>Payment method</span>
-          <input name="method" list="dl-method" placeholder="Choose or type" value="${esc(e.method)}" autocomplete="off"></label>
+          <input name="method" list="dl-method" placeholder="Choose or type" value="${esc(e.method)}" autocomplete="off" maxlength="40"></label>
       </section>
 
       <div class="group-title">Tags <span class="muted">— e.g. work, shared, tax-deductible</span></div>
@@ -513,8 +557,7 @@ function openSheet(entry = null) {
   const form = $('#entryForm');
   const syncType = () => {
     const type = form.type.value;
-    const used = state.entries.filter(x => x.type === type).map(x => x.category).filter(Boolean);
-    $('#dl-cat').innerHTML = [...new Set([...CATEGORIES[type], ...used])].map(c => `<option value="${esc(c)}">`).join('');
+    $('#dl-cat').innerHTML = categoryOptions(type).map(c => `<option value="${esc(c)}">`).join('');
     form.classList.toggle('is-income', type === 'income');
   };
   // New entries pick frequency at the top; existing ones in the first history row.
@@ -524,8 +567,7 @@ function openSheet(entry = null) {
     form.classList.toggle('is-once', once);
     $('.lbl-start', form).textContent = once ? 'Date' : (form.type.value === 'income' ? 'First received' : 'First payment');
   };
-  const usedMethods = state.entries.map(x => x.method).filter(Boolean);
-  $('#dl-method').innerHTML = [...new Set([...METHODS, ...usedMethods])].map(c => `<option value="${esc(c)}">`).join('');
+  $('#dl-method').innerHTML = methodOptions().map(c => `<option value="${esc(c)}">`).join('');
   syncType(); syncFreq();
 
   // Tag editor
@@ -534,8 +576,10 @@ function openSheet(entry = null) {
   const renderTags = () => {
     $('#tagChips', form).innerHTML = tags.map(t =>
       `<button type="button" class="chip on" data-remove-tag="${esc(t)}" aria-label="Remove tag ${esc(t)}">#${esc(t)} <span aria-hidden="true">×</span></button>`).join('');
-    const q = tagInput.value.trim().toLowerCase();
-    const suggestions = allTags().filter(t => !tags.some(x => x.toLowerCase() === t.toLowerCase()) && (!q || t.toLowerCase().includes(q))).slice(0, 12);
+    const q = cleanTag(tagInput.value);
+    // your own tags first, then starter ideas you haven't used yet
+    const suggestions = [...new Set([...allTags(), ...STARTER_TAGS])]
+      .filter(t => !tags.includes(t) && (!q || t.includes(q))).slice(0, 12);
     $('#tagSuggest', form).innerHTML = suggestions.map(t =>
       `<button type="button" class="chip" data-add-tag="${esc(t)}">+ #${esc(t)}</button>`).join('');
   };
@@ -585,10 +629,111 @@ function openSheet(entry = null) {
   if (isNew) setTimeout(() => form.name.focus(), 350);
 }
 
+// ---------- Manage labels sheet ----------
+let manageKind = 'category';
+
+function openManage(kind = manageKind) {
+  manageKind = kind;
+  const meta = LABELS[kind];
+  const items = labelCounts(kind);
+  const unlabelled = kind === 'tag'
+    ? state.entries.filter(e => !e.tags?.length).length
+    : state.entries.filter(e => !e[meta.field]).length;
+
+  sheet.innerHTML = `
+  <div id="manage">
+    <div class="sheet-head">
+      <span></span>
+      <h2>Manage labels</h2>
+      <button type="button" class="link strong" data-close>Done</button>
+    </div>
+    <div class="sheet-body">
+      <div class="seg">
+        ${Object.entries(LABELS).map(([k, m]) =>
+          `<button type="button" data-kind="${k}" class="${k === kind ? 'on' : ''}">${m.title}</button>`).join('')}
+      </div>
+      <p class="fine manage-help">Renaming to a name that already exists <strong>merges</strong> them.
+        Deleting only removes the ${meta.noun} — the entries stay.</p>
+      ${items.length ? `<section class="card list">${items.map(({ name, n }) => `
+        <div class="row static label-row">
+          <div class="row-main">
+            <div class="row-title">${kind === 'tag' ? '#' : ''}${esc(name)}</div>
+            <div class="row-sub">${n} entr${n === 1 ? 'y' : 'ies'}</div>
+          </div>
+          <button type="button" class="btn small" data-rename="${esc(name)}">Rename</button>
+          <button type="button" class="btn small danger" data-remove="${esc(name)}">Delete</button>
+        </div>`).join('')}</section>`
+      : `<p class="empty-small">No ${meta.title.toLowerCase()} in use yet.</p>`}
+      ${unlabelled ? `<p class="fine pad-x">${unlabelled} entr${unlabelled === 1 ? 'y has' : 'ies have'} no ${meta.noun}.</p>` : ''}
+    </div>
+  </div>`;
+
+  const root = $('#manage');
+  root.addEventListener('click', async ev => {
+    const t = ev.target;
+    if (t.closest('[data-close]')) return closeSheet();
+    const k = t.closest('[data-kind]');
+    if (k) return openManage(k.dataset.kind);
+    const ren = t.closest('[data-rename]');
+    const rem = t.closest('[data-remove]');
+    if (ren) await renameLabel(kind, ren.dataset.rename);
+    else if (rem) await removeLabel(kind, rem.dataset.remove);
+  });
+
+  if (!sheet.open) { document.body.classList.add('modal-open'); sheet.showModal(); }
+}
+
+/** Replace (or with to === null, remove) a label on every entry that has it. Returns the count changed. */
+async function changeLabel(kind, from, to) {
+  const lf = from.toLowerCase();
+  const now = new Date().toISOString();
+  const changed = [];
+  for (const e of state.entries) {
+    if (!labelsOf(kind, e).some(l => l.toLowerCase() === lf)) continue;
+    const ne = kind === 'tag'
+      ? { ...e, tags: normalizeTags(e.tags.map(t => (t.toLowerCase() === lf ? to : t)).filter(Boolean)) }
+      : { ...e, [LABELS[kind].field]: to || '' };
+    ne.updatedAt = now;
+    changed.push(ne);
+  }
+  if (changed.length) await db.putEntries(changed);
+  state.entries = await db.allEntries();
+  return changed.length;
+}
+
+async function renameLabel(kind, from) {
+  const meta = LABELS[kind];
+  const input = prompt(`Rename the ${meta.noun} “${from}” to:`, from);
+  if (input == null) return;
+  let to = kind === 'tag' ? cleanTag(input) : cleanLabel(input).slice(0, 40);
+  if (!to || to === from) return;
+  const existing = labelCounts(kind).find(x => x.name.toLowerCase() === to.toLowerCase() && x.name.toLowerCase() !== from.toLowerCase());
+  if (existing) {
+    if (!confirm(`“${existing.name}” already exists. Merge “${from}” into it?`)) return;
+    to = existing.name;
+  }
+  const n = await changeLabel(kind, from, to);
+  toast(existing ? `Merged into “${to}” (${n})` : `Renamed (${n})`);
+  openManage(kind);
+}
+
+async function removeLabel(kind, name) {
+  const meta = LABELS[kind];
+  const n = labelCounts(kind).find(x => x.name === name)?.n || 0;
+  if (!confirm(`Remove the ${meta.noun} “${name}” from ${n} entr${n === 1 ? 'y' : 'ies'}? The entries themselves are kept.`)) return;
+  await changeLabel(kind, name, null);
+  state.tags = state.tags.filter(t => t.toLowerCase() !== name.toLowerCase());
+  toast(`Removed from ${n}`);
+  openManage(kind);
+}
+
 function closeSheet() {
   sheet.close();
 }
-sheet.addEventListener('close', () => document.body.classList.remove('modal-open'));
+sheet.addEventListener('close', () => {
+  document.body.classList.remove('modal-open');
+  render(); // labels may have changed while the sheet was open
+});
 
 async function saveForm(form, existing) {
   const err = msg => { $('#formError').textContent = msg; $('#formError').scrollIntoView({ block: 'center', behavior: 'smooth' }); };
@@ -623,8 +768,8 @@ async function saveForm(form, existing) {
     id: existing?.id || uid(),
     type: f.type === 'income' ? 'income' : 'expense',
     name,
-    category: (f.category || '').trim(),
-    method: (f.method || '').trim(),
+    category: canonicalLabel(f.category, categoryOptions(f.type === 'income' ? 'income' : 'expense')),
+    method: canonicalLabel(f.method, methodOptions()),
     frequency,
     startDate: f.startDate,
     contractEnd: once ? null : f.contractEnd || null,
@@ -722,6 +867,9 @@ function sampleEntries() {
          prices: [{ from: m(-26, 4), amount: 10.99 }, { from: m(-10, 4), amount: 12.99 }] }),
     mk({ type: 'expense', name: 'Spotify', category: 'Subscriptions', method: 'Apple Pay', frequency: 'monthly', startDate: m(-18, 7),
          prices: [{ from: m(-18, 1), amount: 11.99 }] }),
+    mk({ type: 'expense', name: 'Apple One', category: 'Subscriptions', method: 'Apple Pay', frequency: 'monthly', startDate: m(-8, 12),
+         notes: 'One category (Subscriptions); tags say what it covers',
+         prices: [{ from: m(-8, 12), amount: 18.95 }] }),
     mk({ type: 'expense', name: 'Gym', category: 'Health', method: 'Debit card', frequency: 'monthly', startDate: m(-15, 5),
          endDate: m(-4, 5), prices: [{ from: m(-15, 5), amount: 35 }] }),
     mk({ type: 'expense', name: 'Car insurance', category: 'Insurance', method: 'Credit card', frequency: 'yearly', startDate: m(-21, 18),
@@ -737,7 +885,8 @@ function sampleEntries() {
     e.tags = {
       'Salary': ['work'], 'Freelance design job': ['work', 'taxable'], 'Rent': ['shared', 'essential'],
       'Electricity & gas': ['shared', 'essential'], 'Broadband': ['shared'], 'Phone contract': ['essential'],
-      'Netflix': ['shared', 'streaming'], 'Spotify': ['streaming'], 'Car insurance': ['essential', 'car'],
+      'Netflix': ['shared', 'streaming'], 'Spotify': ['music'], 'Car insurance': ['essential', 'car'],
+      'Apple One': ['bundle', 'streaming', 'music', 'cloud-storage'],
       'Groceries': ['shared', 'essential'],
     }[e.name] || [];
     return normalizeEntry(e); // fills each period's frequency, sets current frequency
@@ -758,6 +907,7 @@ const actions = {
     state.sel = null;
     render();
   },
+  'manage-labels': () => openManage('category'),
   'tags-clear': () => { state.tags = []; state.sel = null; render(); },
   breakdown: t => { state.breakdown = t.dataset.by; render(); },
   'go-settings': () => { state.tab = 'settings'; render(); },
