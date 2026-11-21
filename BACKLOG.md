@@ -1,0 +1,60 @@
+# Backlog
+
+Ideas and work for the Budget app, roughly in priority order. Move items up and down as priorities
+change. When something ships, move it to **Done** with the date.
+
+Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
+
+## Next up
+
+| # | Item | Size | Why |
+|---|------|------|-----|
+| 1 | **Put the browser tests in the repo.** Move the phone-sized walkthrough scripts into `tests/e2e/` (with `playwright-core` as a dev dependency) and run them on GitHub after each push | M | They currently live outside the repo. Without them, a later change could break a screen without anyone noticing |
+| 2 | **Undo after delete.** Show a toast with an *Undo* button instead of (or as well as) the confirm box. Covers entries, payments, labels and budgets | S | Mistakes are easy to recover from. Fewer pop-ups |
+| 3 | **Add to Calendar.** Export contract end and notice dates (and optionally big yearly bills) as a calendar file, with an alert before each | S | Reminders that work offline, with no server |
+| 4 | **Duplicate entry.** A "Duplicate" button in the edit sheet | S | Faster to add similar bills |
+| 5 | **Shorter payment logs.** Show the latest 12 payments with "Show all", newest first | S | Long logs make the edit sheet very long after a year or two |
+
+## Soon
+
+| # | Item | Size | Why |
+|---|------|------|-----|
+| 6 | **Set aside for yearly bills.** "Put aside $X/month to cover yearly and quarterly bills", plus a list of large bills due in the next 60 days | M | Stops annual bills being a surprise |
+| 7 | **This year vs last year.** Compare each month with the same month a year ago on the chart, or as a list | M | Fits the main goal: seeing how the budget changes |
+| 8 | **Skip a payment.** Mark one occurrence as skipped, e.g. a payment holiday or a month a bill doesn't apply | S | Keeps forecasts and "To pay" accurate |
+| 9 | **Backup reminders based on changes.** Remind after N changes since the last backup, not only after 30 days | S | Less data at risk after a busy week |
+| 10 | **Help and "What's new".** A short first-run guide, and a note after an update explaining new features | S | New features are easy to miss |
+
+## Later
+
+| # | Item | Size | Notes |
+|---|------|------|-------|
+| 11 | **Face ID / passcode lock** on opening | M | Possible with WebAuthn. A lighter lock than a banking app's |
+| 12 | **Split one bill across categories**, e.g. part of Apple One counted as cloud storage | M | Tags cover most of this today |
+| 13 | **Import a bank statement (CSV)** to log payments automatically by matching amounts and dates | L | Big time-saver for variable bills. Needs careful matching |
+| 14 | **Savings goals**: target, date and progress | M | |
+| 15 | **Push notifications** for bills due or notice deadlines | L | iPhone Home Screen apps support web push, but it needs a small server |
+| 16 | **iCloud sync (CloudKit)** across devices | L | Needs an Apple Developer account ($99/yr). Today's iCloud Drive backups work without it |
+
+## Housekeeping
+
+- Split `js/app.js` (~1,400 lines) into one file per screen (Overview, Entries, Settings, sheets) before it grows much more.
+- Accessibility pass: VoiceOver labels on icon buttons, colour contrast of the muted text, and the order of the segmented controls.
+- Real-iPhone checklist before big releases: date pickers, the share sheet, Home Screen install, dark mode, and the notch/home-bar spacing.
+- Desktop-only: the date box's calendar icon is slightly clipped in the payment rows (not visible on iPhone).
+
+## Not possible in a web app (for reference)
+
+- Home Screen widgets, Siri shortcuts, and reading bank data directly. These would need a native app, e.g. this PWA wrapped with Capacitor and sent through the App Store.
+
+## Done
+
+| Date | Item |
+|------|------|
+| 2026-11-21 | First version: entries, price history, Overview chart, offline, backup to iCloud Drive |
+| 2026-11-21 | Tags and the tag filter. Secret-protection hooks. Old backups keep working (schema versions + tests) |
+| 2026-11-21 | Frequency changes in history (format v2). Fixes from the on-screen check |
+| 2026-11-21 | Manage labels, consistent spellings, tidy tags |
+| 2026-11-21 | Payment log, amount varies, manual payments / To pay, your share, notice periods |
+| 2026-11-21 | Biggest changes, Month/Year view, budgets, until payday, CSV export |
+| 2026-11-21 | Amount varies without a fixed amount (format v3). Removed stray focus boxes |

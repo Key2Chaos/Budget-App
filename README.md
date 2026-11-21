@@ -76,6 +76,10 @@ The app keeps labels consistent for you:
 - **Settings → Manage labels** lets you rename, merge or delete any category, method or tag across
   all entries.
 
+## Backlog
+
+Planned work and ideas live in [BACKLOG.md](BACKLOG.md).
+
 ## Run locally
 
 No build step. Serve the folder with any static server:
