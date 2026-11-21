@@ -485,6 +485,29 @@ test('refunds follow the payee’s purchases: in this file first, else earlier i
     [['e-home', null], ['e-home', 'refund'], ['e-clothes', 'refund'], ['', null], ['ignore', null]]);
 });
 
+test('balance column: checks the amounts, either file order, and spots money out shown as "+"', () => {
+  // CommBank: newest first, adds up as read
+  const rows = B.parseCSV(bankFile('commbank-savings.csv'));
+  const fmt = B.detectFormat(rows);
+  const c = B.checkBalances(B.toTransactions(rows, fmt, 'DMY'));
+  assert.deepEqual(c, { pairs: 4, normal: 4, flipped: 0, latest: { date: '2026-11-15', balance: 3798.4 } });
+  assert.ok(B.balancesAgree(c.normal, c.pairs));
+  // Oldest first, money out as "+": only adds up with the signs switched
+  const r2 = B.parseCSV(bankFile('money-out-positive.csv'));
+  const f2 = B.detectFormat(r2);
+  const c2 = B.checkBalances(B.toTransactions(r2, f2, 'DMY'));
+  assert.deepEqual([c2.normal, c2.flipped, c2.latest], [0, 2, { date: '2026-11-07', balance: 923.4 }]);
+  assert.deepEqual(B.toTransactions(r2, { ...f2, flip: true }, 'DMY').map(t => t.amount), [-4.5, -82.1, 10]);
+  // A row missing from the middle: most still add up; several missing: they don't
+  const t = (date, amount, balance) => ({ date, amount, balance });
+  const gap = [t('2026-11-06', -1, 90), t('2026-11-05', -1, 91), t('2026-11-04', -1, 92), t('2026-11-03', -1, 93), t('2026-11-02', -1, 94), t('2026-11-01', -5, 100)];
+  const c3 = B.checkBalances(gap);
+  assert.ok(B.balancesAgree(c3.normal, c3.pairs), '4 of 5 add up');
+  const bad = B.checkBalances([t('2026-11-03', -1, 50), t('2026-11-02', -1, 70), t('2026-11-01', -1, 90)]);
+  assert.ok(!B.balancesAgree(bad.normal, bad.pairs) && !B.balancesAgree(bad.flipped, bad.pairs));
+  assert.equal(B.checkBalances(B.toTransactions(B.parseCSV(bankFile('commbank-credit-card.csv')), B.detectFormat(B.parseCSV(bankFile('commbank-credit-card.csv'))), 'DMY')), null, 'no balances');
+});
+
 test('payee keys ignore card numbers, dates, places', () => {
   assert.equal(B.payeeKey('NETFLIX.COM MELBOURNE AU AUS Card xx1234 Value Date: 02/11/2026'), 'NETFLIX COM MELBOURNE');
   assert.equal(B.payeeKey('Direct Debit 445566 ORIGIN ENERGY'), 'ORIGIN ENERGY');

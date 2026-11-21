@@ -367,7 +367,7 @@ function renderOverview() {
         <div class="card-head"><h3>Until payday</h3><span class="muted">${esc(pd.main.name)} · ${fmtDate(pd.payday)} · ${relDays(pd.days)}</span></div>
         <label class="row static balance-row">
           <div class="row-main"><div class="row-title">Balance now</div>
-            <div class="row-sub">${bal ? (balAge > 2 ? `entered ${relDays(-balAge)} — update it for accuracy` : `entered ${relDays(-balAge)}`) : 'Optional — see what’s left after each payment'}</div></div>
+            <div class="row-sub">${bal ? `${bal.account ? `from the ${esc(accountName(bal.account))} statement,` : 'entered'} ${relDays(-balAge)}${balAge > 2 ? ' — update it for accuracy' : ''}` : 'Optional — see what’s left after each payment'}</div></div>
           <input id="balance" inputmode="decimal" placeholder="0.00" value="${bal ? bal.amount.toFixed(2) : ''}" aria-label="Current balance">
         </label>
         <div class="pd-summary">
@@ -624,6 +624,13 @@ async function renderSettings() {
         <div class="row-main"><div class="row-title accent">Forget remembered matches</div>
         <div class="row-sub">${entryRuleCount()} payee${entryRuleCount() === 1 ? '' : 's'} currently go straight to an entry. “Always ignore” choices are kept.</div></div>
       </button>` : ''}
+      ${(state.settings.importLog || []).length ? (() => {
+        const b = state.settings.importLog.at(-1);
+        return `<button class="row" data-action="undo-last-import">
+        <div class="row-main"><div class="row-title danger">Undo last import…</div>
+        <div class="row-sub">${esc(b.file)} into ${esc(accountName(b.account))} · ${esc(fmtDate(localDay(b.at)))}</div></div>
+      </button>`;
+      })() : ''}
       ${hasImportData() ? `<button class="row" data-action="undo-imports">
         <div class="row-main"><div class="row-title danger">Undo bank imports…</div>
         <div class="row-sub">Remove imported payments, entries imports added, remembered matches and ignored transactions, to start again.</div></div>
@@ -1181,12 +1188,66 @@ function openUndoImports() {
       .filter(([, v]) => (form.rules.checked ? isKindRule(v) : !del.has(v)));
     state.settings.payeeRules = Object.fromEntries(keptRules);
     if (form.ignored.checked) { state.settings.ignoredTxns = []; state.settings.transfers = []; }
+    state.settings.importLog = []; // nothing left for "Undo last import" to undo
     await saveSettings();
     closeSheet();
     await reload();
     toast('Bank imports undone');
   });
   if (!sheet.open) { document.body.classList.add('modal-open'); sheet.showModal(); }
+}
+
+/**
+ * "Undo last import": takes back the most recent import only. Its payments come out (wherever
+ * they've been moved since), payments you'd logged yourself go back to how they were, transfers it
+ * took out of a catch-all go back in, entries it added are deleted unless something else has been
+ * logged on them, and its ignored transactions, transfers, remembered payees and balance are undone.
+ * Can be repeated, back through the last few imports.
+ */
+async function undoLastImport() {
+  const log = state.settings.importLog || [];
+  const b = log.at(-1);
+  if (!b) return;
+  const pays = state.entries.reduce((n, e) => n + (e.payments || []).filter(p => p.batch === b.id).length, 0);
+  const created = state.entries.filter(e => e.importBatch === b.id);
+  const parts = [`${pays} payment${pays === 1 ? '' : 's'}`];
+  if (created.length) parts.push(`the ${created.length} entr${created.length === 1 ? 'y' : 'ies'} it added (${created.map(e => e.name).join(', ')})`);
+  if (!confirm(`Undo the import of “${b.file}” into ${accountName(b.account)} on ${fmtDate(localDay(b.at))}? This removes ${parts.join(' and ')}. Payments you logged yourself go back to how they were.`)) return;
+
+  const now = new Date().toISOString();
+  const restore = new Map(b.linked.filter(Boolean).map(p => [p.id, p]));
+  const changed = new Map();
+  for (const e of state.entries) {
+    const before = e.payments || [];
+    let after = before.filter(p => p.batch !== b.id).map(p => restore.get(p.id) || p);
+    for (const x of b.takenOut) if (x.entryId === e.id && x.payment && !after.some(p => p.id === x.payment.id)) after = [...after, x.payment];
+    if (after.length !== before.length || after.some((p, i) => p !== before[i])) changed.set(e.id, { ...e, payments: after, updatedAt: now });
+  }
+  // Entries it added go, unless you've logged something else on them since
+  const del = created.filter(e => !(changed.get(e.id) || e).payments.length);
+  const kept = created.length - del.length;
+  for (const e of del) changed.delete(e.id);
+  const toSave = [...changed.values()].map(normalizeEntry).filter(Boolean);
+  if (toSave.length) await db.putEntries(toSave);
+  for (const e of del) await db.deleteEntry(e.id);
+
+  const gone = new Set(del.map(e => e.id));
+  const rules = { ...(state.settings.payeeRules || {}) };
+  for (const [k, { before, after }] of Object.entries(b.rules || {})) {
+    if ((rules[k] ?? null) !== after) continue; // changed again since: leave it
+    if (before == null) delete rules[k]; else rules[k] = before;
+  }
+  for (const [k, v] of Object.entries(rules)) if (gone.has(v)) delete rules[k];
+  state.settings.payeeRules = rules;
+  const ign = new Set(b.ignored), tr = new Set(b.transfers);
+  state.settings.ignoredTxns = (state.settings.ignoredTxns || []).filter(id => !ign.has(id));
+  state.settings.transfers = (state.settings.transfers || []).filter(x => !tr.has(x.id));
+  const bal = state.settings.balance;
+  if (b.balance && bal?.account === b.account) state.settings.balance = b.balance.before;
+  state.settings.importLog = log.slice(0, -1);
+  await saveSettings();
+  await reload();
+  toast(`Import undone${kept ? ` · kept ${kept} entr${kept === 1 ? 'y' : 'ies'} with other payments` : ''}`);
 }
 
 /** Give a payee your own name, used on the import screen, for matching and in payment notes. */
@@ -1252,13 +1313,19 @@ async function startBankImport(file) {
   const known = new Set(state.entries.flatMap(e => (e.payments || []).map(p => p.source).filter(Boolean)));
   (state.settings.ignoredTxns || []).forEach(id => known.add(id));
   (state.settings.transfers || []).forEach(x => known.add(x.id));
-  const txns = Bank.toTransactions(rows, fmt, order);
+  // The Balance column, if there is one, checks the amounts were read the right way round
+  const asRead = Bank.toTransactions(rows, fmt, order);
+  const check = Bank.checkBalances(asRead);
+  const autoFlip = !!check && !Bank.balancesAgree(check.normal, check.pairs) && Bank.balancesAgree(check.flipped, check.pairs);
+  if (autoFlip) fmt.flip = true;
+  const txns = autoFlip ? Bank.toTransactions(rows, fmt, order) : asRead;
   const seen = accountKeys().find(k => Bank.withIds(txns, k).some(t => known.has(t.id)));
   imp = {
     fileName: file.name, rows, fmt, order, orderDetected: !!detected, guess,
     account: seen || findAccount(guess) || accountKeys()[0] || guess,
-    newAccount: !accountKeys().length, newGroups: new Set(),
+    newAccount: !accountKeys().length, newGroups: new Set(), check, autoFlip,
   };
+  imp.useBalance = balanceByDefault();
   buildImport();
   openImport();
 }
@@ -1348,6 +1415,21 @@ const accountLabel = acc => accountName(accountKeys().find(k => k.toLowerCase() 
 
 /** Choices that don't log a payment. */
 const quiet = d => !!d && (d.startsWith('ignore') || d === 'transfer');
+
+/** Whether the Balance column adds up with the amounts, for the current sign setting. */
+const balanceOK = () => !!imp.check && Bank.balancesAgree(imp.fmt.flip ? imp.check.flipped : imp.check.normal, imp.check.pairs);
+
+/**
+ * Whether to set "Balance now" from this statement unless you say otherwise: when there's no
+ * balance yet, or the last one came from this account's statement and this one is as new or newer.
+ * A balance you typed yourself is left alone.
+ */
+function balanceByDefault() {
+  if (!imp.check) return false;
+  const bal = state.settings.balance;
+  if (!bal) return true;
+  return !!bal.account && bal.account.toLowerCase() === imp.account.toLowerCase() && imp.check.latest.date >= bal.date;
+}
 
 /** Which transactions update a payment the user already logged by hand (for the current choices). */
 const importLinks = () => Bank.planLinks(imp.txns, imp.decision, new Map(state.entries.map(e => [e.id, e])));
@@ -1489,11 +1571,26 @@ function openImport() {
             <button type="button" data-order="DMY" class="${imp.order === 'DMY' ? 'on' : ''}">Day/Month</button>
             <button type="button" data-order="MDY" class="${imp.order === 'MDY' ? 'on' : ''}">Month/Day</button>
           </div></div>
+        <div class="field"><span>Money out is</span>
+          <div class="seg small grow">
+            <button type="button" data-flip="0" class="${imp.fmt.flip ? '' : 'on'}" aria-label="Money out is shown as minus">− (minus)</button>
+            <button type="button" data-flip="1" class="${imp.fmt.flip ? 'on' : ''}" aria-label="Money out is shown as plus">+ (plus)</button>
+          </div></div>
+        ${balanceOK() ? `<label class="field toggle"><span>Set “Balance now”<br><span class="muted small-text">${money(imp.check.latest.balance)} on ${esc(fmtDate(imp.check.latest.date))} · used by Until payday</span></span>
+          <input type="checkbox" id="impBalance" ${imp.useBalance ? 'checked' : ''}></label>` : ''}
       </section>
       <p class="fine pad-x">${imp.orderDetected ? 'Date order detected from the file.' : '<strong>Check the date order:</strong> this file could be read either way.'}
         ${sample ? `First row: ${esc(sample)} → ${sampleISO ? esc(dayMonthYear.format(C.parse(sampleISO))) : 'not a valid date'}.` : ''}
         Choose the same account each time so transactions you've already imported are recognised.
         You can rename an account in Settings.</p>
+      ${!imp.check ? '' : !balanceOK()
+        ? `<p class="fine pad-x warn" id="impCheck"><strong>Check this file:</strong> the Balance column doesn’t add up with the amounts
+          on ${imp.check.pairs - (imp.fmt.flip ? imp.check.flipped : imp.check.normal)} of ${imp.check.pairs} rows.
+          ${Bank.balancesAgree(imp.fmt.flip ? imp.check.normal : imp.check.flipped, imp.check.pairs)
+            ? `It does with money out as “${imp.fmt.flip ? '−' : '+'}”.` : 'Some rows may be missing, or a column may have been read wrongly.'}</p>`
+        : `<p class="fine pad-x" id="impCheck">${imp.autoFlip && imp.fmt.flip
+          ? '<strong>This file shows money out as “+”.</strong> The balances confirm it, so the signs have been switched. '
+          : ''}✓ The amounts add up with the Balance column.</p>`}
       ${imp.already ? `<p class="fine pad-x"><strong>${imp.already}</strong> already imported or ignored — skipped.</p>` : ''}
 
       ${imp.recurring.length ? `<div class="group-title">Looks recurring — not in your entries yet</div>
@@ -1561,6 +1658,7 @@ function openImport() {
       const k = ev.target.value;
       imp.newAccount = !k;
       imp.account = k || (findAccount(imp.guess) ? `${imp.guess} 2` : imp.guess);
+      if (!imp.balanceTouched) imp.useBalance = balanceByDefault();
       buildImport(); return openImportKeepScroll();
     }
     if (ev.target.id === 'impAccount') {
@@ -1569,14 +1667,18 @@ function openImport() {
       const existing = findAccount(name); // typed the name of an account that exists: use it
       imp.account = existing || name;
       imp.newAccount = !existing;
+      if (!imp.balanceTouched) imp.useBalance = balanceByDefault();
       buildImport(); openImportKeepScroll();
     }
+    if (ev.target.id === 'impBalance') { imp.useBalance = ev.target.checked; imp.balanceTouched = true; }
   });
   root.addEventListener('click', async ev => {
     const t = ev.target;
     if (t.closest('[data-close]')) { imp = null; return closeSheet(); }
     const o = t.closest('[data-order]');
     if (o) { imp.order = o.dataset.order; buildImport(); return openImportKeepScroll(); }
+    const fl = t.closest('[data-flip]');
+    if (fl) { imp.fmt.flip = fl.dataset.flip === '1'; buildImport(); return openImportKeepScroll(); }
     const n = t.closest('[data-new]');
     if (n) {
       const g = imp.recurring.find(x => x.key === n.dataset.new);
@@ -1618,6 +1720,10 @@ function openImportKeepScroll() {
 
 async function applyImport() {
   const now = new Date().toISOString();
+  // Everything this import adds is tagged or recorded, so "Undo last import" can take it back out.
+  const batch = uid();
+  const undo = { id: batch, at: now, account: imp.account, file: imp.fileName, linked: [], takenOut: [], ignored: [], transfers: [] };
+  const rulesBefore = { ...(state.settings.payeeRules || {}) };
   const rules = { ...(state.settings.payeeRules || {}) };
   const ignored = [...(state.settings.ignoredTxns || [])];
   const transfers = [...(state.settings.transfers || [])];
@@ -1636,7 +1742,7 @@ async function applyImport() {
     const start = g.txns[0].date;
     changed.set(id, {
       id, type: g.type, name: g.name, category: '', method: accountName(imp.account), frequency: g.frequency, startDate: start,
-      contractEnd: null, endsAtExpiry: false, endDate: null, notes: `Added from a bank import (${g.payee})`, tags: [], fromImport: true,
+      contractEnd: null, endsAtExpiry: false, endDate: null, notes: `Added from a bank import (${g.payee})`, tags: [], fromImport: true, importBatch: batch,
       prices: [{ from: start, amount: g.variable ? null : g.amount, frequency: g.frequency }],
       variable: g.variable, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
     });
@@ -1658,7 +1764,7 @@ async function applyImport() {
     changed.set(id, {
       id, type: lead.amount < 0 ? 'expense' : 'income', name: lead.name || Bank.payeeName(payee), category: '',
       method: accountName(imp.account), frequency, startDate: start, contractEnd: null, endsAtExpiry: false, endDate: null,
-      notes: `Added from a bank import (${payee})`, tags: [], fromImport: true,
+      notes: `Added from a bank import (${payee})`, tags: [], fromImport: true, importBatch: batch,
       prices: [{ from: start, amount: one ? Math.abs(txns[0].amount) : null, frequency }],
       variable: !one, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
     });
@@ -1679,7 +1785,7 @@ async function applyImport() {
       id, type, name: catchName(imp.account, type), category: '', method: accountName(imp.account), frequency: 'irregular',
       startDate: start, contractEnd: null, endsAtExpiry: false, endDate: null,
       notes: 'Everything from bank imports that isn’t matched to another entry. Open it to move a payee into an entry of its own.',
-      tags: [], fromImport: true, catchAll: catchKey(imp.account, type),
+      tags: [], fromImport: true, importBatch: batch, catchAll: catchKey(imp.account, type),
       prices: [{ from: start, amount: null, frequency: 'irregular' }],
       variable: true, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
     });
@@ -1698,6 +1804,7 @@ async function applyImport() {
     }
     if (d === 'transfer') {
       transfers.push({ id: t.id, account: imp.account.toLowerCase(), date: t.date, amount: t.amount });
+      undo.transfers.push(t.id);
       transferCount++;
       if (chosen !== suggested) rules[t.payee] = 'transfer';
       // The other side went into a catch-all entry on an earlier import: take it out, as a transfer.
@@ -1706,14 +1813,16 @@ async function applyImport() {
         const e = get(o.entryId);
         if (e) {
           changed.set(e.id, { ...e, payments: e.payments.filter(p => p.id !== o.paymentId), updatedAt: now });
+          undo.takenOut.push({ entryId: e.id, payment: e.payments.find(p => p.id === o.paymentId) });
           transfers.push({ id: o.id, account: o.account, date: o.date, amount: o.amount });
+          undo.transfers.push(o.id);
           takenOut++;
         }
       }
       continue;
     }
     if (d === 'ignore' || d === 'ignore-payee') {
-      ignored.push(t.id); ignoredCount++;
+      ignored.push(t.id); undo.ignored.push(t.id); ignoredCount++;
       if (d === 'ignore-payee') rules[t.payee] = 'ignore';
       continue;
     }
@@ -1729,13 +1838,14 @@ async function applyImport() {
     const note = (t.name ? `${t.name} · ${t.description}` : t.description).slice(0, 100);
     if (link) {
       // Already logged by hand: keep that payment, but take the bank's actual date and amount.
+      undo.linked.push(e.payments.find(p => p.id === link.id));
       const payments = e.payments.map(p => (p.id === link.id
         ? { ...p, date: t.date, amount, due: p.due || Bank.nearestDue(e, t.date), note: p.note || note, source: t.id, handLogged: true }
         : p));
       changed.set(e.id, { ...e, payments, updatedAt: now });
       linked++;
     } else {
-      const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note, source: t.id, payee: t.payee };
+      const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note, source: t.id, payee: t.payee, batch };
       changed.set(e.id, { ...e, payments: [...(e.payments || []), payment], updatedAt: now });
     }
     // Remember the payee only for choices you made, name matches and existing rules. A match on
@@ -1750,6 +1860,15 @@ async function applyImport() {
   state.settings.payeeRules = rules;
   state.settings.ignoredTxns = ignored.slice(-5000);
   state.settings.transfers = transfers.slice(-3000);
+  if (imp.useBalance && balanceOK()) {
+    undo.balance = { before: state.settings.balance || null };
+    state.settings.balance = { amount: imp.check.latest.balance, date: imp.check.latest.date, account: imp.account };
+  }
+  // Payee rules this import changed, and what they were before
+  undo.rules = Object.fromEntries([...new Set([...Object.keys(rulesBefore), ...Object.keys(rules)])]
+    .filter(k => rulesBefore[k] !== rules[k]).map(k => [k, { before: rulesBefore[k] ?? null, after: rules[k] ?? null }]));
+  undo.payments = logged - linked;
+  state.settings.importLog = [...(state.settings.importLog || []), undo].slice(-5);
   state.settings.bankAccounts = uniqueCI([imp.account, ...(state.settings.bankAccounts || [])]);
   await saveSettings();
   const added = imp.newGroups.size + made.size + createdCatch;
@@ -2149,6 +2268,7 @@ const actions = {
   'rename-account': t => renameAccount(t.dataset.key),
   'forget-rules': forgetRules,
   'undo-imports': openUndoImports,
+  'undo-last-import': undoLastImport,
   period: async t => { state.settings.period = t.dataset.period; await saveSettings(); render(); },
   'export-csv': exportCSV,
   'mark-paid': async t => {

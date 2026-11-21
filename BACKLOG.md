@@ -71,3 +71,4 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-22 | Bank import: unmatched transactions shown one row per payee; same name or same new entry puts payees together |
 | 2026-11-22 | Bank import fixes: a "Value Date" column is never read as the amount; preferred column names win (Transaction Date, Description); CR / DR amounts |
 | 2026-11-22 | Bank import: transfers between your own accounts (card payments, savings) aren't counted as spending or income, and are taken out of a catch-all when the other side turns up; refunds go with the payee's purchases instead of income |
+| 2026-11-22 | Bank import: Undo last import (steps back through the last 5); amounts checked against the Balance column, "money out is +" files spotted and switched, newest balance sets "Balance now" |

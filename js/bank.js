@@ -157,6 +157,7 @@ export function toTransactions(rows, fmt, order) {
       if (Number.isFinite(out_) && out_ !== 0) amount = -Math.abs(out_);
       else if (Number.isFinite(in_)) amount = Math.abs(in_);
     }
+    if (fmt.flip && Number.isFinite(amount)) amount = -amount; // the file shows money out as positive
     const raw = r[fmt.desc] || '';
     const description = raw.replace(/\s+/g, ' ').trim();
     if (!date || !Number.isFinite(amount) || amount === 0 || !description) continue;
@@ -166,6 +167,43 @@ export function toTransactions(rows, fmt, order) {
   }
   return out;
 }
+
+// ---------- Balance column ----------
+
+/**
+ * Check the amounts against the Balance column: each row's balance should be the previous row's
+ * plus its amount. Works for files in either order (newest first, like CommBank, or oldest first).
+ * Returns null without enough balances, else
+ *   { pairs, normal, flipped, latest: { date, balance } }
+ * where `normal` counts neighbouring rows that add up as read, and `flipped` those that add up with
+ * every amount's sign reversed (a file that shows money out as positive). Pass the transactions
+ * as read, before any flip.
+ */
+export function checkBalances(txns) {
+  const rows = txns.filter(t => Number.isFinite(t.balance));
+  if (rows.length < 2) return null;
+  const eq = (a, b) => Math.abs(a - b) < 0.005;
+  const first = rows[0], last = rows.at(-1);
+  let down = 0, up = 0, downF = 0, upF = 0;
+  for (let i = 0; i < rows.length - 1; i++) {
+    const a = rows[i], b = rows[i + 1];
+    if (eq(a.balance, b.balance + a.amount)) down++;  // newest first
+    if (eq(a.balance, b.balance - a.amount)) downF++;
+    if (eq(b.balance, a.balance + b.amount)) up++;    // oldest first
+    if (eq(b.balance, a.balance - b.amount)) upF++;
+  }
+  // Which way the file runs: from the dates, else whichever way adds up better
+  const newestFirst = first.date !== last.date ? first.date > last.date : Math.max(down, downF) >= Math.max(up, upF);
+  return {
+    pairs: rows.length - 1,
+    normal: newestFirst ? down : up,
+    flipped: newestFirst ? downF : upF,
+    latest: { date: (newestFirst ? first : last).date, balance: (newestFirst ? first : last).balance },
+  };
+}
+
+/** Enough neighbouring rows add up (allowing for the odd skipped row) to trust the file as read. */
+export const balancesAgree = (count, pairs) => pairs > 0 && count / pairs >= 0.8;
 
 // ---------- Payee keys & transaction ids ----------
 

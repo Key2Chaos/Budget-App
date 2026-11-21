@@ -394,3 +394,78 @@ test('refunds: money back from a shop goes with its purchases, not to income', a
   await chooseFile(page, 'commbank-credit-card.csv');
   await expect(txn(page, 'KMART').locator('select option:checked')).toHaveText('Everyday spending – CommBank credit card');
 });
+
+test('undo last import: takes back only the latest import, and can be repeated', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-credit-card.csv');
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('added 3 entries');   // Disney Plus, Google One, Everyday spending
+  await chooseFile(page, 'card-with-refund.csv');
+  await expect(page.locator('#impAccountPick')).toHaveValue('CommBank credit card');
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged 3 payments');
+
+  // Undo the second one: its payments go, the entries the first one added stay
+  await tab(page, 'settings');
+  const undoRow = page.locator('[data-action=undo-last-import]');
+  await expect(undoRow).toContainText('card-with-refund.csv into CommBank credit card');
+  await undoRow.click();
+  await expect.poll(() => page.dialogs.at(-1)).toMatch(/This removes 3 payments\./);
+  await expect(page.locator('#toast')).toContainText('Import undone');
+  await editEntry(page, 'Everyday spending – CommBank credit card');
+  await expect(page.locator('#payments .pay-row [name=payamount][value="5.00"]')).toHaveCount(0);       // the cafe, from the second
+  await expect(page.locator('#payments .pay-row [name=payamount][value="23.40"]')).toHaveCount(1); // Woolworths, from the first
+  await page.locator('.sheet-head button:has-text("Cancel")').first().click();
+
+  // The file can be imported again as new
+  await chooseFile(page, 'card-with-refund.csv');
+  await expect(imp(page)).not.toContainText('already imported or ignored');
+  await imp(page).locator('.sheet-head [data-close]').click();
+
+  // Undo the first one too: the entries it added go, and its transactions come back as new
+  await tab(page, 'settings');
+  await expect(undoRow).toContainText('commbank-credit-card.csv');
+  await undoRow.click();
+  await expect.poll(() => page.dialogs.at(-1)).toMatch(/the 3 entries it added \(.*Disney Plus.*\)/);
+  await expect(page.locator('#toast')).toContainText('Import undone');
+  await expect(undoRow).toHaveCount(0);
+  await tab(page, 'entries');
+  await expect(row(page, 'Disney Plus')).toHaveCount(0);
+  await expect(row(page, 'Everyday spending – CommBank credit card')).toHaveCount(0);
+  await chooseFile(page, 'commbank-credit-card.csv');
+  await expect(imp(page)).not.toContainText('already imported or ignored');
+  await expect(txn(page, 'PAYMENT RECEIVED')).toHaveCount(1);                 // the transfer comes back too
+  await expect(txn(page, 'NETFLIX.COM').first()).not.toContainText('remembered');
+});
+
+test('balance column: checked against the amounts, and sets "Balance now"', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-savings.csv');
+  await expect(imp(page).locator('#impCheck')).toContainText('The amounts add up with the Balance column');
+  await expect(page.locator('#impBalance')).toBeChecked();                   // no balance yet
+  await expect(imp(page)).toContainText('$3,798.40 on 15 Nov');
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await tab(page, 'overview');
+  await expect(page.locator('#balance')).toHaveValue('3798.40');
+  await expect(page.locator('.balance-row')).toContainText('from the CommBank account statement');
+
+  // A balance you type yourself isn't replaced by default
+  await page.locator('#balance').fill('500');
+  await page.locator('#balance').blur();
+  await chooseFile(page, 'savings-card-payoff.csv');
+  await page.locator('#impAccountPick').selectOption('CommBank account');
+  await expect(page.locator('#impBalance')).not.toBeChecked();
+});
+
+test('money out shown as "+": the balances spot it and the signs are switched', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'money-out-positive.csv');
+  await expect(imp(page).locator('#impCheck')).toContainText('This file shows money out as “+”');
+  await expect(imp(page).locator('[data-flip="1"]')).toHaveClass(/on/);
+  await expect(txn(page, 'COFFEE CART')).toContainText('−$4.50');
+  // Switching it back shows why
+  await imp(page).locator('[data-flip="0"]').click();
+  await expect(imp(page).locator('#impCheck')).toContainText('doesn’t add up with the amounts on 2 of 2 rows');
+  await expect(imp(page).locator('#impCheck')).toContainText('It does with money out as “+”');
+  await expect(txn(page, 'COFFEE CART')).toContainText('+$4.50');
+});

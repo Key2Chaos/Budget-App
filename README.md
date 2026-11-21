@@ -75,6 +75,15 @@ No backend, no account. All data lives on the device in IndexedDB.
     e.g. "ORIGIN ENERGY" → *Electricity & gas*, or "always ignore this payee". Amount-only matches
     aren't remembered, so one coincidence can't send every later purchase from that shop to a bill.
     Set a remembered row to *Skip for now* to forget it.
+  - **Balance column:** when a file has one, the amounts are checked against it (each row's balance
+    should be the previous one plus its amount), and the review screen says whether they add up. A file
+    that shows money out as "+" is spotted this way and switched round; you can also switch it with
+    *Money out is − / +*. The newest balance can set **Balance now** for *Until payday* (on by default
+    unless you typed a balance yourself).
+  - **Undo last import** (Settings) takes back just the most recent import: its payments (wherever
+    they've been moved), the entries it added (unless something else is logged on them), its ignored
+    transactions and transfers, the payees it remembered, and the balance it set. Payments you'd logged
+    yourself go back to how they were. Repeat it to step back through the last 5 imports.
   - **Starting again:** Settings → *Undo bank imports* removes imported payments, the entries imports
     added (switch off any you want to keep), remembered matches and the ignored list. Payments you
     logged yourself, your payee names and "always ignore" / transfer payees are kept. *Forget remembered
