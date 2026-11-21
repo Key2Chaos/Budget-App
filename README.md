@@ -6,7 +6,15 @@ No backend, no account. All data lives on the device in IndexedDB.
 ## Features
 
 - **Income and expenses**, each with a name, amount, frequency (one-off, weekly, fortnightly,
-  4-weekly, monthly, quarterly, 6-monthly or yearly), first payment date, category and payment method.
+  4-weekly, monthly, quarterly, 6-monthly, yearly or **variable**), first payment date, category and
+  payment method.
+- **Variable (no set schedule)**: for things paid whenever, like prepaid top-ups or fuel.
+  - The amount is optional, and means "about per month".
+  - There are no due dates, so these never show as upcoming or overdue.
+  - Each month counts what you actually logged: imported or typed payments land on the day they
+    were paid, rather than being spread over a period.
+  - The estimate is the average of your last three complete months.
+  - Bank import matches them by the full name only, since there's no amount or date to compare.
 - **Contract end date** (optional), with a reminder on the Overview 60 days before it ends. You can
   choose whether payments stop at the end date or roll over. Entries that have rolled over show as
   "out of contract" so you know to look for a better deal.
@@ -79,6 +87,10 @@ No backend, no account. All data lives on the device in IndexedDB.
     it's saved in each payment's note. Clear the name to go back to the bank's text.
   - **Renaming an account** (Settings → Bank statements → Rename) is safe: transactions are still
     recognised, and entries using the old name as their payment method are updated.
+  - **New entry from any transaction:** the dropdown's *+ New entry* creates one for that payee, and
+    takes their other undecided transactions with it. It becomes a recurring entry if the payee looks
+    recurring, *Variable (no set schedule)* if there are several transactions, or a one-off if
+    there's just one.
   - **Recurring payments you haven't added**, e.g. "Disney Plus, 3 × $13.99 monthly", can be added as
     entries with one tap, past payments included.
 - **Spreadsheet export** (Settings → Export spreadsheet): three CSV files (entries, payments and
