@@ -57,25 +57,92 @@ export const stopDate = e => e.endDate || (e.endsAtExpiry && e.contractEnd) || n
 export const isEnded = (e, onISO = todayISO()) =>
   e.frequency === 'once' ? false : !!(stopDate(e) && stopDate(e) < onISO);
 
-/** Normalised monthly amount (e.g. yearly / 12, weekly * 52 / 12). */
-export function monthlyEquivalent(e, onISO = todayISO()) {
-  if (e.frequency === 'once') return 0;
-  const p = periodOn(e, onISO);
-  return p.amount * FREQ[p.frequency].perMonth;
+/** Fraction of the bill that is yours (e.g. 0.5 for a bill split in half). */
+export const shareOf = e => (Number.isFinite(e.share) && e.share > 0 && e.share < 100 ? e.share / 100 : 1);
+
+const byDate = (a, b) => a.date.localeCompare(b.date);
+export const paymentsOf = e => [...(e.payments || [])].sort(byDate);
+
+/**
+ * Expected amount per payment on a date (full bill, before your share).
+ * Fixed bills: the planned amount. "Amount varies" bills: the average of the last 3 payments
+ * logged since the current plan period began, falling back to the planned amount.
+ */
+export function estimateOn(e, dateISO = todayISO()) {
+  const p = periodOn(e, dateISO);
+  if (!p) return 0;
+  if (!e.variable) return p.amount;
+  const recent = paymentsOf(e).filter(x => x.date <= dateISO && x.date >= p.from && x.amount > 0).slice(-3);
+  return recent.length ? recent.reduce((s, x) => s + x.amount, 0) / recent.length : p.amount;
 }
 
-/** Contribution of one entry to a calendar month (y, m0 = 0-based month). */
+/** Planned monthly amount on a date (full bill). */
+function planPerMonth(e, dateISO) {
+  const p = periodOn(e, dateISO);
+  return estimateOn(e, dateISO) * FREQ[p.frequency].perMonth;
+}
+
+/** Normalised monthly amount, your share (e.g. yearly / 12, weekly * 52 / 12). */
+export function monthlyEquivalent(e, onISO = todayISO()) {
+  if (e.frequency === 'once') return 0;
+  return shareOf(e) * planPerMonth(e, onISO);
+}
+
+/**
+ * Logged payments as non-overlapping spans of days. Each payment covers the period leading up to
+ * its date (one billing period, or back to the previous payment if that's sooner), so a quarterly
+ * bill is spread over the three months it covers instead of landing in one month.
+ * A span covers the days after `fromExcl` up to and including `to`.
+ */
+export function paymentSpans(e) {
+  const out = [];
+  let prev = null;
+  for (const p of paymentsOf(e)) {
+    const f = FREQ[e.frequency === 'once' ? 'monthly' : freqOn(e, p.date)];
+    let from = f.days ? addDaysISO(p.date, -f.days) : iso(addMonths(parse(p.date), -f.months));
+    if (prev && prev > from) from = prev;
+    const days = daysBetween(from, p.date);
+    if (days > 0) out.push({ fromExcl: from, to: p.date, amount: p.amount, days });
+    else if (out.length) out.at(-1).amount += p.amount; // second payment on the same day
+    else out.push({ fromExcl: addDaysISO(p.date, -1), to: p.date, amount: p.amount, days: 1 });
+    prev = p.date;
+  }
+  return out;
+}
+
+/** Contribution of one entry to a calendar month (y, m0 = 0-based month), your share. */
 export function monthAmount(e, y, m0) {
   const start = iso(new Date(y, m0, 1));
   const end = iso(new Date(y, m0 + 1, 0));
+  const share = shareOf(e);
   if (e.frequency === 'once') {
-    return e.startDate >= start && e.startDate <= end ? priceOn(e, e.startDate) : 0;
+    const pays = e.payments || [];
+    if (pays.length) return share * pays.filter(p => p.date >= start && p.date <= end).reduce((s, p) => s + p.amount, 0);
+    return e.startDate >= start && e.startDate <= end ? share * priceOn(e, e.startDate) : 0;
   }
+  // What was actually paid for days in this month…
+  const monthDays = daysBetween(start, end) + 1;
+  let actual = 0, covered = 0;
+  for (const s of paymentSpans(e)) {
+    const a = addDaysISO(s.fromExcl, 1) > start ? addDaysISO(s.fromExcl, 1) : start;
+    const b = s.to < end ? s.to : end;
+    if (a > b) continue;
+    const overlap = daysBetween(a, b) + 1;
+    actual += (s.amount * overlap) / s.days;
+    covered += overlap;
+  }
+  // …and the plan for any days no logged payment covers.
+  let planned = 0;
   const stop = stopDate(e);
-  if (e.startDate > end || (stop && stop < start)) return 0;
-  const ref = stop && stop < end ? stop : end;
-  return monthlyEquivalent(e, ref);
+  if (!(e.startDate > end || (stop && stop < start))) {
+    const ref = stop && stop < end ? stop : end;
+    planned = planPerMonth(e, ref) * Math.max(0, 1 - covered / monthDays);
+  }
+  return share * (actual + planned);
 }
+
+/** Last day to give notice before the contract ends (or null). */
+export const noticeBy = e => (e.contractEnd && e.noticeDays > 0 ? addDaysISO(e.contractEnd, -e.noticeDays) : null);
 
 export function monthTotals(entries, y, m0) {
   let income = 0, expense = 0;
@@ -138,6 +205,43 @@ export function nextDue(e, fromISO = todayISO()) {
   if (segs[i + 1] && s >= segs[i + 1].from) s = segs[i + 1].from;
   const stop = stopDate(e);
   return stop && s > stop ? null : s;
+}
+
+/** All payment dates from fromISO to toISO (inclusive). */
+export function occurrences(e, fromISO, toISO) {
+  const out = [];
+  let d = nextDue(e, fromISO);
+  while (d && d <= toISO && out.length < 400) {
+    out.push(d);
+    if (e.frequency === 'once') break;
+    d = nextDue(e, addDaysISO(d, 1));
+  }
+  return out;
+}
+
+/**
+ * Has the payment due on dueISO been logged? A payment marked for that due date counts; otherwise
+ * any payment within half a billing period of it does.
+ */
+export function isPaid(e, dueISO) {
+  const pays = e.payments || [];
+  if (e.frequency === 'once') return pays.length > 0;
+  const f = FREQ[freqOn(e, dueISO)];
+  const half = f.days ? f.days / 2 : f.months * 15;
+  return pays.some(p => (p.due ? p.due === dueISO : Math.abs(daysBetween(p.date, dueISO)) < half));
+}
+
+/** Manual payments that are overdue (up to 35 days back) or due within `aheadDays`. */
+export function toPay(entries, today = todayISO(), aheadDays = 14) {
+  const out = [];
+  for (const e of entries) {
+    if (!e.manual) continue;
+    const from = [addDaysISO(today, -35), e.startDate].sort().at(-1);
+    for (const due of occurrences(e, from, addDaysISO(today, aheadDays))) {
+      if (!isPaid(e, due)) out.push({ e, due, overdue: due < today });
+    }
+  }
+  return out.sort((a, b) => a.due.localeCompare(b.due));
 }
 
 /** Parse user-typed money like "£1,234.50" or "12,50". */

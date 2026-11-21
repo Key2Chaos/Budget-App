@@ -82,6 +82,10 @@ function money(n, opts = {}) {
   if (!fmtCache.has(key)) fmtCache.set(key, new Intl.NumberFormat(undefined, { style: 'currency', currency: state.settings.currency, currencyDisplay: 'narrowSymbol', ...opts }));
   return fmtCache.get(key).format(n);
 }
+/** Expected amount for one payment on a date — your share, using the estimate for varying bills. */
+const dueAmount = (e, dateISO) => C.shareOf(e) * C.estimateOn(e, dateISO);
+/** "−£12.99" / "+£2,950.00", with "≈" when the amount varies. */
+const signed = (e, n) => `${e.type === 'income' ? '+' : '−'}${e.variable ? '≈' : ''}${money(Math.abs(n))}`;
 const compactMoney = n => money(n, { notation: 'compact', maximumFractionDigits: 1 });
 
 const monthShort = new Intl.DateTimeFormat(undefined, { month: 'short' });
@@ -221,19 +225,30 @@ function renderOverview() {
     insight.push(change('Income', first.income, last.income, true));
   }
 
-  // Upcoming payments (next 14 days)
+  // Manual payments to make (overdue + next 14 days)
+  const pay = C.toPay(entries, today);
+
+  // Upcoming automatic payments (next 14 days) — manual ones are in "To pay" above
   const horizon = C.addDaysISO(today, 14);
   const upcoming = entries
+    .filter(e => !e.manual)
     .map(e => ({ e, due: C.nextDue(e, today) }))
     .filter(x => x.due && x.due <= horizon)
     .sort((a, b) => a.due.localeCompare(b.due))
     .slice(0, 6);
 
-  // Contracts ending soon / recently out of contract
+  // Contracts: notice deadline (if set) or end date coming up, or recently out of contract
   const contracts = entries
     .filter(e => e.contractEnd && e.frequency !== 'once' && !(e.endDate && e.endDate < today))
-    .map(e => ({ e, days: C.daysBetween(today, e.contractEnd) }))
-    .filter(x => x.days <= 60 && (x.days >= 0 || (!x.e.endsAtExpiry && x.days >= -60)))
+    .map(e => {
+      const notice = C.noticeBy(e);
+      const endDays = C.daysBetween(today, e.contractEnd);
+      const noticeDays = notice ? C.daysBetween(today, notice) : null;
+      // count down to the notice deadline while it's still ahead, otherwise to the end date
+      const days = noticeDays !== null && noticeDays >= 0 ? noticeDays : endDays;
+      return { e, notice, noticeDays, endDays, days };
+    })
+    .filter(x => x.days <= 60 && (x.endDays >= 0 || (!x.e.endsAtExpiry && x.endDays >= -60)))
     .sort((a, b) => a.days - b.days);
 
   // Breakdown of this month's expenses, by category or by tag
@@ -254,6 +269,19 @@ function renderOverview() {
     ${backupBanner}
     ${tagBar()}
     ${filterNote}
+
+    ${pay.length ? `<section class="card">
+      <div class="card-head"><h3>To pay</h3><span class="muted">${pay.filter(x => x.overdue).length ? `${pay.filter(x => x.overdue).length} overdue` : 'manual payments'}</span></div>
+      <div class="list">${pay.map(({ e, due, overdue }) => `
+        <div class="row pay-item">
+          <button class="row-main plain" data-action="edit" data-id="${e.id}">
+            <div class="row-title">${esc(e.name)}</div>
+            <div class="row-sub ${overdue ? 'neg' : ''}">${overdue ? 'Overdue · was due ' : 'Due '}${fmtDate(due)} · ${relDays(C.daysBetween(today, due))}</div>
+          </button>
+          <div class="row-amt ${e.type === 'income' ? 'pos' : 'neg'}">${signed(e, dueAmount(e, due))}</div>
+          <button class="btn small" data-action="mark-paid" data-id="${e.id}" data-due="${due}">${e.type === 'income' ? 'Received' : 'Mark paid'}</button>
+        </div>`).join('')}
+      </div></section>` : ''}
 
     <section class="card summary">
       <div class="summary-head">${esc(monthLong.format(now))}</div>
@@ -281,15 +309,17 @@ function renderOverview() {
 
     ${contracts.length ? `<section class="card">
       <div class="card-head"><h3>Contracts</h3></div>
-      <div class="list">${contracts.map(({ e, days }) => `
+      <div class="list">${contracts.map(({ e, notice, noticeDays, endDays, days }) => `
         <button class="row" data-action="edit" data-id="${e.id}">
           <div class="row-main">
             <div class="row-title">${esc(e.name)}</div>
-            <div class="row-sub">${days >= 0
-              ? `Ends ${fmtDate(e.contractEnd)} · ${relDays(days)} · ${e.endsAtExpiry ? 'will stop' : 'then rolls over'}`
-              : `Out of contract since ${fmtDate(e.contractEnd)} — worth checking for a better deal`}</div>
+            <div class="row-sub">${endDays < 0
+              ? `Out of contract since ${fmtDate(e.contractEnd)} — worth checking for a better deal`
+              : noticeDays !== null && noticeDays >= 0
+                ? `Give notice by <strong>${fmtDate(notice)}</strong> (${relDays(noticeDays)}) · ends ${fmtDate(e.contractEnd)}`
+                : `Ends ${fmtDate(e.contractEnd)} · ${relDays(endDays)} · ${e.endsAtExpiry ? 'will stop' : 'then rolls over'}${notice ? ' · notice date passed' : ''}`}</div>
           </div>
-          <span class="pill ${days < 0 ? 'warn' : days <= 14 ? 'soon' : ''}">${days >= 0 ? `${days}d` : 'Expired'}</span>
+          <span class="pill ${endDays < 0 ? 'warn' : days <= 14 ? 'soon' : ''}">${endDays >= 0 ? `${days}d` : 'Expired'}</span>
         </button>`).join('')}
       </div></section>` : ''}
 
@@ -301,7 +331,7 @@ function renderOverview() {
             <div class="row-title">${esc(e.name)}</div>
             <div class="row-sub">${fmtDate(due)} · ${relDays(C.daysBetween(today, due))}${e.method ? ' · ' + esc(e.method) : ''}</div>
           </div>
-          <div class="row-amt ${e.type === 'income' ? 'pos' : 'neg'}">${e.type === 'income' ? '+' : '−'}${money(C.priceOn(e, due))}</div>
+          <div class="row-amt ${e.type === 'income' ? 'pos' : 'neg'}">${signed(e, dueAmount(e, due))}</div>
         </button>`).join('')}
       </div></section>` : ''}
 
@@ -359,22 +389,27 @@ function renderEntries() {
 
   const row = e => {
     const inc = e.type === 'income';
-    const sign = inc ? '+' : '−';
-    const price = e.frequency === 'once' ? C.priceOn(e, e.startDate) : C.currentPrice(e);
+    const once = e.frequency === 'once';
+    const full = once ? (e.payments?.length ? e.payments.reduce((s, p) => s + p.amount, 0) : C.priceOn(e, e.startDate))
+                      : C.estimateOn(e, today);
     const due = C.nextDue(e, today);
+    const last = C.paymentsOf(e).at(-1);
     const sub = [
       e.category,
       e.method,
-      e.frequency === 'once' ? fmtDate(e.startDate) : C.FREQ[C.freqOn(e, today)].label,
-      C.isEnded(e, today) ? `Ended ${fmtDate(C.stopDate(e))}` : (e.frequency !== 'once' && due ? `Next ${fmtDate(due)}` : null),
+      once ? fmtDate(e.startDate) : C.FREQ[C.freqOn(e, today)].label,
+      C.isEnded(e, today) ? `Ended ${fmtDate(C.stopDate(e))}` : (!once && due ? `Next ${fmtDate(due)}` : null),
+      e.manual ? 'Paid manually' : null,
+      last && !once ? `Last ${money(last.amount)} on ${fmtDate(last.date)}` : null,
     ].filter(Boolean).map(esc).join(' · ');
-    const perMonth = e.frequency !== 'once' && C.freqOn(e, today) !== 'monthly'
-      ? `<small>≈ ${money(C.monthlyEquivalent(e))}/mo</small>` : '';
+    const notes = [];
+    if (e.share < 100) notes.push(`your ${e.share}% of ${money(full)}`);
+    if (!once && C.freqOn(e, today) !== 'monthly') notes.push(`≈ ${money(C.monthlyEquivalent(e))}/mo`);
     const tags = e.tags?.length
       ? `<div class="row-tags">${e.tags.map(t => `<span class="chip tiny">#${esc(t)}</span>`).join('')}</div>` : '';
     return `<button class="row" data-action="edit" data-id="${e.id}">
       <div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub">${sub}</div>${tags}</div>
-      <div class="row-amt ${inc ? 'pos' : 'neg'}">${sign}${money(price)}${perMonth}</div>
+      <div class="row-amt ${inc ? 'pos' : 'neg'}">${signed(e, full * C.shareOf(e))}${notes.map(n => `<small>${n}</small>`).join('')}</div>
     </button>`;
   };
   const group = (title, items, extra = '') => items.length
@@ -478,6 +513,20 @@ function priceRow(p, first) {
   </div>`;
 }
 
+/** One logged payment: date, Paid/Credit toggle, amount (full bill). */
+function payRow(p) {
+  const credit = p.amount < 0;
+  return `<div class="field pay-row">
+    <input type="date" name="paydate" value="${esc(p.date)}" aria-label="Paid on">
+    <button type="button" class="chip sign ${credit ? 'credit' : ''}" data-sign aria-label="Payment or credit">${credit ? 'Credit' : 'Paid'}</button>
+    <input name="payamount" inputmode="decimal" placeholder="0.00" value="${p.amount === '' ? '' : Math.abs(p.amount).toFixed(2)}" aria-label="Amount">
+    <input type="hidden" name="paysign" value="${credit ? -1 : 1}">
+    <input type="hidden" name="paydue" value="${esc(p.due || '')}">
+    <input type="hidden" name="payid" value="${esc(p.id || '')}">
+    <button type="button" class="icon-btn small" data-remove-payment aria-label="Remove payment">−</button>
+  </div>`;
+}
+
 function openSheet(entry = null) {
   const isNew = !entry;
   const e = entry || { type: 'expense', frequency: 'monthly', startDate: C.todayISO(), prices: [{ from: C.todayISO(), amount: '' }] };
@@ -516,6 +565,24 @@ function openSheet(entry = null) {
         (e.g. yearly → monthly). For a frequency change, use the date of the first payment on the new schedule.</p>
       <button type="button" class="link add-price recurring-only" data-add-price>+ Add change</button>`}
 
+      <div class="group-title">How it's paid</div>
+      <section class="card form">
+        <label class="field toggle"><span>Amount varies</span>
+          <input type="checkbox" name="variable" ${e.variable ? 'checked' : ''}></label>
+        <label class="field toggle"><span>Manual payment</span>
+          <input type="checkbox" name="manual" ${e.manual ? 'checked' : ''}></label>
+        <label class="field"><span>Your share</span>
+          <input name="share" inputmode="decimal" value="${e.share ?? 100}" aria-label="Your share in percent"><i class="suffix">%</i></label>
+      </section>
+      <p class="fine pad-x"><strong>Amount varies</strong>: the amount is an estimate (e.g. utilities). Log real payments and
+        the estimate follows your last three. <strong>Manual</strong>: it appears under “To pay” with a Mark paid button.
+        <strong>Your share</strong>: for split bills, only your part counts in the budget.</p>
+
+      ${isNew ? '' : `
+      <div class="group-title">Payments made</div>
+      <section class="card form" id="payments">${C.paymentsOf(e).reverse().map(payRow).join('')}</section>
+      <button type="button" class="link add-price" data-add-payment>+ Log payment</button>`}
+
       <section class="card form">
         <label class="field"><span>Category</span>
           <input name="category" list="dl-cat" placeholder="Choose or type" value="${esc(e.category)}" autocomplete="off" maxlength="40"></label>
@@ -535,12 +602,15 @@ function openSheet(entry = null) {
       <section class="card form recurring-only">
         <label class="field"><span>Contract ends</span>
           <input type="date" name="contractEnd" value="${esc(e.contractEnd || '')}"></label>
+        <label class="field"><span>Notice needed</span>
+          <input name="noticeDays" inputmode="numeric" placeholder="0" value="${e.noticeDays ?? ''}" aria-label="Notice needed in days"><i class="suffix">days</i></label>
         <label class="field toggle"><span>Stop when contract ends</span>
           <input type="checkbox" name="endsAtExpiry" ${e.endsAtExpiry ? 'checked' : ''}></label>
         <label class="field"><span>Cancelled on</span>
           <input type="date" name="endDate" value="${esc(e.endDate || '')}"></label>
       </section>
-      <p class="fine pad-x recurring-only">Contract end is optional — you'll get a heads-up on the Overview as it approaches. Set “Cancelled on” once you stop paying.</p>
+      <p class="fine pad-x recurring-only">Contract end is optional — you'll get a heads-up on the Overview as it approaches
+        (or as the notice deadline approaches, if the contract needs notice). Set “Cancelled on” once you stop paying.</p>
 
       <section class="card form">
         <label class="field col"><span>Notes</span>
@@ -619,6 +689,19 @@ function openSheet(entry = null) {
       $('#prices', form).insertAdjacentHTML('beforeend', priceRow({ from: C.todayISO(), amount: '', frequency: lastFreq }, false));
       $('#prices .price-row:last-child input[name=pamount]', form).focus();
     } else if (ev.target.closest('[data-remove-price]')) ev.target.closest('.price-row').remove();
+    else if (ev.target.closest('[data-add-payment]')) {
+      const est = C.estimateOn(entry, C.todayISO());
+      $('#payments', form).insertAdjacentHTML('afterbegin',
+        payRow({ date: C.todayISO(), amount: est ? Math.round(est * 100) / 100 : '' }));
+      $('#payments .pay-row input[name=payamount]', form).select();
+    } else if (ev.target.closest('[data-remove-payment]')) ev.target.closest('.pay-row').remove();
+    else if (ev.target.closest('[data-sign]')) {
+      const b = ev.target.closest('[data-sign]');
+      const credit = !b.classList.contains('credit');
+      b.classList.toggle('credit', credit);
+      b.textContent = credit ? 'Credit' : 'Paid';
+      b.closest('.pay-row').querySelector('[name=paysign]').value = credit ? -1 : 1;
+    }
     else if (ev.target.closest('[data-delete]')) deleteEntry(entry);
   });
   form.addEventListener('submit', ev => { ev.preventDefault(); saveForm(form, entry); });
@@ -763,8 +846,28 @@ async function saveForm(form, existing) {
   if (!once && f.contractEnd && f.contractEnd < f.startDate) return err('Contract end can’t be before the first payment.');
   if (!once && f.endDate && f.endDate < f.startDate) return err('Cancelled date can’t be before the first payment.');
 
+  const share = C.parseAmount(f.share || '100');
+  if (!(share > 0 && share <= 100)) return err('Your share must be between 1 and 100%.');
+  const noticeDays = f.noticeDays?.trim() ? Number(f.noticeDays.trim()) : null;
+  if (noticeDays !== null && !(Number.isInteger(noticeDays) && noticeDays >= 0 && noticeDays <= 3650)) {
+    return err('Notice needed should be a whole number of days.');
+  }
+
+  // Logged payments (edit mode only)
+  const oldPays = new Map((existing?.payments || []).map(p => [p.id, p]));
+  const payments = [];
+  for (const row of form.querySelectorAll('.pay-row')) {
+    const get = n => row.querySelector(`[name=${n}]`).value;
+    const amount = C.parseAmount(get('payamount'));
+    if (!get('paydate') || !(amount >= 0)) return err('Each logged payment needs a date and an amount.');
+    const id = get('payid') || uid();
+    payments.push({ ...oldPays.get(id), id, date: get('paydate'), amount: Number(get('paysign')) * amount, due: get('paydue') || null });
+  }
+  payments.sort((a, b) => a.date.localeCompare(b.date));
+
   const now = new Date().toISOString();
   const entry = {
+    ...existing, // keep any fields this version of the form doesn't know about
     id: existing?.id || uid(),
     type: f.type === 'income' ? 'income' : 'expense',
     name,
@@ -778,6 +881,11 @@ async function saveForm(form, existing) {
     notes: (f.notes || '').trim(),
     tags: (form._commitTags(), form._getTags()),
     prices,
+    variable: !!f.variable,
+    manual: !!f.manual,
+    share: share >= 100 ? 100 : share,
+    noticeDays: once || !noticeDays ? null : noticeDays,
+    payments: existing ? payments : [],
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   };
@@ -860,13 +968,23 @@ function sampleEntries() {
     mk({ type: 'expense', name: 'Electricity & gas', category: 'Utilities', method: 'Direct debit', frequency: 'monthly', startDate: m(-26, 15),
          prices: [{ from: m(-26, 15), amount: 92 }, { from: m(-16, 15), amount: 128 }, { from: m(-5, 15), amount: 115 }] }),
     mk({ type: 'expense', name: 'Phone contract', category: 'Phone & Internet', method: 'Direct debit', frequency: 'monthly', startDate: m(-23, 9),
-         contractEnd: d(24), prices: [{ from: m(-23, 9), amount: 32 }] }),
+         contractEnd: d(45), prices: [{ from: m(-23, 9), amount: 32 }] }),
     mk({ type: 'expense', name: 'Broadband', category: 'Phone & Internet', method: 'Direct debit', frequency: 'monthly', startDate: m(-20, 20),
          contractEnd: d(-18), prices: [{ from: m(-20, 20), amount: 28 }, { from: m(-8, 20), amount: 31.5 }] }),
     mk({ type: 'expense', name: 'Netflix', category: 'Subscriptions', method: 'Credit card', frequency: 'monthly', startDate: m(-26, 4),
          prices: [{ from: m(-26, 4), amount: 10.99 }, { from: m(-10, 4), amount: 12.99 }] }),
     mk({ type: 'expense', name: 'Spotify', category: 'Subscriptions', method: 'Apple Pay', frequency: 'monthly', startDate: m(-18, 7),
          prices: [{ from: m(-18, 1), amount: 11.99 }] }),
+    mk({ type: 'expense', name: 'Water', category: 'Utilities', method: 'Direct debit', frequency: 'quarterly', startDate: m(-12, 10),
+         variable: true, notes: 'Bill varies — real payments logged',
+         prices: [{ from: m(-12, 10), amount: 95 }],
+         payments: [[-12, 91.3], [-9, 96.2], [-6, 104.75], [-3, 88.4]].map(([o, amount], i) => ({ id: `w${i}`, date: m(o, 10), amount })) }),
+    mk({ type: 'expense', name: 'Window cleaner', category: 'Housing', method: 'Cash', frequency: 'monthly',
+         startDate: C.iso(C.addMonths(C.parse(d(-9)), -7)), manual: true,
+         prices: [{ from: C.iso(C.addMonths(C.parse(d(-9)), -7)), amount: 20 }] }),
+    mk({ type: 'expense', name: 'Piano lessons', category: 'Entertainment', method: 'Bank transfer', frequency: 'monthly',
+         startDate: C.iso(C.addMonths(C.parse(d(5)), -4)), manual: true,
+         prices: [{ from: C.iso(C.addMonths(C.parse(d(5)), -4)), amount: 60 }] }),
     mk({ type: 'expense', name: 'Apple One', category: 'Subscriptions', method: 'Apple Pay', frequency: 'monthly', startDate: m(-8, 12),
          notes: 'One category (Subscriptions); tags say what it covers',
          prices: [{ from: m(-8, 12), amount: 18.95 }] }),
@@ -887,8 +1005,17 @@ function sampleEntries() {
       'Electricity & gas': ['shared', 'essential'], 'Broadband': ['shared'], 'Phone contract': ['essential'],
       'Netflix': ['shared', 'streaming'], 'Spotify': ['music'], 'Car insurance': ['essential', 'car'],
       'Apple One': ['bundle', 'streaming', 'music', 'cloud-storage'],
-      'Groceries': ['shared', 'essential'],
+      'Groceries': ['shared', 'essential'], 'Water': ['shared', 'essential'],
     }[e.name] || [];
+    Object.assign(e, {
+      'Rent': { share: 50, notes: 'Split 50/50 — only my half counts' },
+      'Phone contract': { noticeDays: 30 },
+    }[e.name] || {});
+    // Manual sample bills: everything before the last couple of weeks is already marked paid
+    if (e.manual) {
+      e.payments = C.occurrences(e, e.startDate, C.addDaysISO(C.todayISO(), -12))
+        .map((due, i) => ({ id: `s${i}`, date: due, amount: e.prices[0].amount, due }));
+    }
     return normalizeEntry(e); // fills each period's frequency, sets current frequency
   });
 }
@@ -908,6 +1035,23 @@ const actions = {
     render();
   },
   'manage-labels': () => openManage('category'),
+  'mark-paid': async t => {
+    const e = state.entries.find(x => x.id === t.dataset.id);
+    const due = t.dataset.due;
+    if (!e) return;
+    const est = C.estimateOn(e, due);
+    const what = e.type === 'income' ? 'Amount received' : 'Amount paid';
+    const input = prompt(`${what} for ${e.name} (due ${fmtDate(due)})${e.share < 100 ? ' — the full bill, before your share' : ''}:`,
+      est ? (Math.round(est * 100) / 100).toFixed(2) : '');
+    if (input == null) return;
+    const amount = C.parseAmount(input);
+    if (!Number.isFinite(amount)) { alert('That doesn’t look like an amount.'); return; }
+    const payments = [...(e.payments || []), { id: uid(), date: C.todayISO(), amount, due, note: '' }]
+      .sort((a, b) => a.date.localeCompare(b.date));
+    await db.putEntry({ ...e, payments, updatedAt: new Date().toISOString() });
+    await reload();
+    toast(e.type === 'income' ? 'Marked as received' : 'Marked as paid');
+  },
   'tags-clear': () => { state.tags = []; state.sel = null; render(); },
   breakdown: t => { state.breakdown = t.dataset.by; render(); },
   'go-settings': () => { state.tab = 'settings'; render(); },

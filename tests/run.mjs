@@ -106,6 +106,69 @@ test('frequency changes: amounts and payment dates follow the history', () => {
   assert.equal(C.monthAmount(once, 2026, 6), 120);
 });
 
+test('older data gets safe defaults for payments, share, notice, manual, variable', () => {
+  const { entries } = migrateBackup(load('v1-2026-11-initial-release.json'));
+  for (const e of entries) {
+    assert.deepEqual(e.payments, []);
+    assert.equal(e.share, 100);
+    assert.equal(e.noticeDays, null);
+    assert.equal(e.manual, false);
+    assert.equal(e.variable, false);
+  }
+});
+
+test('logged payments replace the plan for the days they cover', () => {
+  const { entries } = migrateBackup(load('v2-2026-11-payments-share-notice.json'));
+  const gas = entries.find(e => e.name === 'Gas');
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
+  // Feb 2025 sits inside the first bill (15 Jan → 15 Apr, 90 days, £330)
+  near(C.monthAmount(gas, 2025, 1), 330 * 28 / 90);
+  // May 2025 sits inside the second bill (15 Apr → 15 Jul, 91 days, £210)
+  near(C.monthAmount(gas, 2025, 4), 210 * 31 / 91);
+  // Oct 2025: 1–15 Oct covered by the £180 bill (92 days); 16–31 Oct uses the estimate
+  const estimate = (330 + 210 + 180) / 3;            // average of the last three
+  near(C.estimateOn(gas, '2025-10-31'), estimate);
+  near(C.monthAmount(gas, 2025, 9), 180 * 15 / 92 + (estimate / 3) * (16 / 31));
+  // Future months use the estimate
+  near(C.monthAmount(gas, 2026, 5), estimate / 3);
+  // Every logged pound is counted somewhere across the months the bills cover
+  let sum = 0;
+  for (let m = 0; m < 10; m++) sum += C.monthAmount(gas, 2025, m);
+  assert.ok(sum > 330 + 210 + 180 - 1, 'logged amounts are all counted');
+});
+
+test('a credit (negative payment) reduces the month', () => {
+  const { entries } = migrateBackup(load('v2-2026-11-payments-share-notice.json'));
+  const el = entries.find(e => e.name === 'Electricity');
+  // the -40 credit covers 21 Feb → 20 Mar
+  assert.ok(C.monthAmount(el, 2026, 2) < 30, 'March is mostly the credit');
+});
+
+test('your share applies to every total', () => {
+  const { entries } = migrateBackup(load('v2-2026-11-payments-share-notice.json'));
+  const rent = entries.find(e => e.name === 'Rent');
+  assert.equal(C.monthAmount(rent, 2026, 0), 600);
+  assert.equal(C.monthlyEquivalent(rent, '2026-01-01'), 600);
+  assert.equal(C.priceOn(rent, '2026-01-01'), 1200); // the stored bill stays the full amount
+});
+
+test('manual payments: paid / overdue / to pay', () => {
+  const { entries } = migrateBackup(load('v2-2026-11-payments-share-notice.json'));
+  const wc = entries.find(e => e.name === 'Window cleaner');
+  assert.equal(C.isPaid(wc, '2026-07-03'), true);   // marked for that due date
+  assert.equal(C.isPaid(wc, '2026-09-03'), true);   // paid two days late, no due date recorded
+  assert.equal(C.isPaid(wc, '2026-10-03'), false);
+  const list = C.toPay(entries, '2026-11-10');
+  assert.deepEqual(list.map(x => [x.e.name, x.due, x.overdue]), [['Window cleaner', '2026-11-03', true]]);
+  assert.deepEqual(C.toPay(entries, '2026-11-25').map(x => x.due), ['2026-11-03', '2026-12-03']);
+});
+
+test('notice period moves the deadline earlier', () => {
+  const { entries } = migrateBackup(load('v2-2026-11-payments-share-notice.json'));
+  assert.equal(C.noticeBy(entries.find(e => e.name === 'Phone contract')), '2026-11-15');
+  assert.equal(C.noticeBy(entries.find(e => e.name === 'Rent')), null);
+});
+
 test('one-off entries always use "once" for every period', () => {
   const e = normalizeEntry({ id: 'o', name: 'Gift', frequency: 'once', startDate: '2026-01-01',
     prices: [{ from: '2026-01-01', amount: 5, frequency: 'monthly' }, { from: '2026-02-01', amount: 6 }] });

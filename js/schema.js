@@ -89,9 +89,38 @@ export function normalizeEntry(raw) {
     notes: str(raw.notes),
     tags: normalizeTags(raw.tags),
     prices,
+    // Optional fields added Nov 2026 (no format bump needed — older data just gets the defaults):
+    variable: !!raw.variable,                      // amount varies; planned amount is an estimate
+    manual: !!raw.manual,                          // paid by hand → shows in "To pay"
+    share: normalizeShare(raw.share),              // your % of the bill (100 = all of it)
+    noticeDays: !once && Number.isInteger(raw.noticeDays) && raw.noticeDays > 0 && raw.noticeDays <= 3650
+      ? raw.noticeDays : null,
+    payments: normalizePayments(raw.payments),
     createdAt: str(raw.createdAt) || now,
     updatedAt: str(raw.updatedAt) || str(raw.createdAt) || now,
   };
+}
+
+function normalizeShare(v) {
+  const n = typeof v === 'string' ? parseFloat(v) : Number(v);
+  return Number.isFinite(n) && n > 0 && n < 100 ? Math.round(n * 100) / 100 : 100;
+}
+
+/** Logged payments: { id, date, amount (negative = refund/credit), due (which payment it settles), note }. */
+function normalizePayments(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter(p => p && typeof p === 'object')
+    .map((p, i) => ({
+      ...p,
+      id: str(p.id) || `p${i}-${str(p.date)}`,
+      date: str(p.date),
+      amount: typeof p.amount === 'string' ? parseFloat(p.amount) : Number(p.amount),
+      due: isDate(p.due) ? p.due : null,
+      note: str(p.note),
+    }))
+    .filter(p => isDate(p.date) && Number.isFinite(p.amount))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function normalizeSettings(raw) {

@@ -316,6 +316,19 @@ form.is-once .recurring-only { display: none; }
 .tag-suggest:empty { display: none; }
 .tag-suggest .chip { font-size: 13px; padding: 4px 10px; color: var(--accent); }
 
+/* ---------- Payments ---------- */
+.suffix { font-style: normal; color: var(--muted); flex: none; margin-left: -6px; }
+.pay-row { gap: 8px; }
+.pay-row input[name=paydate] { flex: 1 1 auto; text-align: left; justify-content: flex-start; }
+.pay-row input[name=paydate]::-webkit-date-and-time-value { text-align: left; }
+.pay-row input[name=payamount] { flex: 0 0 5.5em; font-weight: 600; }
+.chip.sign { padding: 3px 9px; font-size: 12px; background: var(--fill); color: var(--muted); }
+.chip.sign.credit { background: color-mix(in srgb, var(--pos) 18%, transparent); color: var(--pos); }
+#payments:empty { display: none; }
+.pay-item { gap: 10px; }
+.row-main.plain { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.pay-item .btn.small { flex: none; }
+
 /* ---------- Manage labels ---------- */
 .chev { color: var(--muted); font-size: 22px; line-height: 1; }
 .manage-help { margin: 12px 4px 14px; }

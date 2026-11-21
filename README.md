@@ -15,6 +15,17 @@ No backend, no account. All data lives on the device in IndexedDB.
   chart shows what really applied in each month.
   - A price-only change keeps the usual payment day.
   - A frequency change starts a new schedule from its date.
+- **Bills that vary** (utilities, water): switch on *Amount varies*, then log real payments.
+  - Each payment is spread over the period it covers, so a quarterly bill is spread across three
+    months.
+  - Months without a logged payment use an estimate: the average of your last three bills.
+  - Refunds can be logged as **Credit**.
+- **Manual payments** (cash, bank transfer): switch on *Manual payment*. They appear under **To
+  pay** on the Overview with a **Mark paid** button. Missed ones show as overdue.
+- **Your share**: for split bills, set your % and only your part counts in totals. The full bill
+  is still stored.
+- **Notice period**: the Contracts warning counts down to the last day you can give notice, not the
+  end date.
 - **Overview**: this month's income, spending and what's left over. Also a chart over 6M, 1Y, 2Y or
   All with a 3-month forecast (tap or drag to read any month), payments due in the next 14 days, and
   spending by category.
