@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION whenever you deploy changes so phones pick them up.
-const VERSION = 'v15';
+const VERSION = 'v16';
 const CACHE = `budget-${VERSION}`;
 const ASSETS = [
   './',

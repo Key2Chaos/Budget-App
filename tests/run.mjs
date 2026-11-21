@@ -456,6 +456,22 @@ test('import memory (rules, ignored, accounts) survives a backup round trip', ()
   assert.deepEqual(settings.bankAccounts, ['CommBank card']);
 });
 
+test('card purchases near a bill\'s price are not matched to it on amount alone', () => {
+  // A $15 phone plan due on the 13th of each month
+  const phone = normalizeEntry({ id: 'm', type: 'expense', name: 'Woolworths Mobile - Blake', frequency: 'monthly',
+    startDate: '2026-01-13', prices: [{ from: '2026-01-13', amount: 15 }] });
+  const t = (date, amount, description) => ({ date, amount, description });
+  const best = x => B.suggest([x], [phone])[0];
+  assert.equal(best(t('2026-11-13', -14.95, 'PRICELINE ST CLAIR ST CLAIR')).action, '', 'within 1% is not the same amount');
+  assert.equal(best(t('2026-11-01', -15, 'PRICELINE ST CLAIR ST CLAIR')).action, '', 'right amount, 12 days from the due date');
+  const exact = best(t('2026-11-14', -15, 'BPAY 98765'));
+  assert.equal(exact.action, 'm', 'exact amount, a day after the due date');
+  assert.equal(exact.byName, false);
+  const named = best(t('2026-11-20', -15, 'WOOLWORTHS MOBILE SYDNEY'));
+  assert.equal(named.action, 'm');
+  assert.equal(named.byName, true);
+});
+
 test('your own payee names: shown, used for matching and for new entries, kept in backups', () => {
   const internet = normalizeEntry({ id: 'i', type: 'expense', name: 'Home internet', frequency: 'monthly',
     startDate: '2026-01-09', prices: [{ from: '2026-01-09', amount: 104 }] });

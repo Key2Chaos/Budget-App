@@ -112,7 +112,8 @@ function normalizeShare(v) {
   return Number.isFinite(n) && n > 0 && n < 100 ? Math.round(n * 100) / 100 : 100;
 }
 
-/** Logged payments: { id, date, amount (negative = refund/credit), due (which payment it settles), note }. */
+/** Logged payments: { id, date, amount (negative = refund/credit), due (which payment it settles), note,
+ *  source (bank transaction id, if imported), handLogged (logged by hand, then matched by an import) }. */
 function normalizePayments(list) {
   if (!Array.isArray(list)) return [];
   return list

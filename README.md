@@ -53,9 +53,14 @@ No backend, no account. All data lives on the device in IndexedDB.
     plus most files with a header row (Date / Amount or Debit & Credit / Description).
   - **Dates:** day/month order is detected from the file. If the file could be read either way, you
     choose, with a preview.
-  - **Matching:** each transaction is matched to an entry by name (whole words), amount and due date,
-    then logged as a payment. Your choices are remembered for next time, e.g. "ORIGIN ENERGY" →
-    *Electricity & gas*, or "always ignore this payee".
+  - **Matching:** each transaction is matched to an entry by name (whole words), or by the exact
+    amount within 3 days of a due date, then logged as a payment.
+  - **Remembered payees:** choices you make yourself, and name matches, are remembered for next time,
+    e.g. "ORIGIN ENERGY" → *Electricity & gas*, or "always ignore this payee". Amount-only matches
+    aren't remembered, so one coincidence can't send every later purchase from that shop to a bill.
+    Set a remembered row to *Skip for now* to forget it.
+  - **Starting again:** Settings → *Forget remembered matches*, and *Remove imported payments*
+    (payments you logged yourself are kept).
   - **No duplicates:** importing an overlapping statement never logs the same transaction twice.
     Choose the same account each time; the app suggests the one a file was imported into before.
   - **Payments you logged yourself** (typed in, or *Mark paid*) aren't doubled up. A bank transaction

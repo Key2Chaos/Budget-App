@@ -210,36 +210,46 @@ export function nearestDue(e, dateISO) {
   return dues.sort((a, b) => Math.abs(C.daysBetween(a, dateISO)) - Math.abs(C.daysBetween(b, dateISO)))[0];
 }
 
+/** How many words of the entry's name appear in the transaction (the bank's text or your name for the payee). */
+export function nameHits(txn, e) {
+  // Whole words only ("car" must not match "Card xx1234"); longer names may match the start of a
+  // word ("electric" → "electricity").
+  const words = `${txn.name || ''} ${txn.description}`.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const tokens = nameTokens(e.name);
+  return { hits: tokens.filter(t => words.some(w => w === t || (t.length >= 5 && w.startsWith(t)))).length, of: tokens.length };
+}
+
+/** How close (in days) a due date must be for an amount-only match. */
+export const DUE_DAYS = 3;
+
 /**
- * How well a transaction fits an entry. Needs a name match, or an exact amount on a due date,
- * before it counts as a suggestion (score ≥ 4).
+ * How well a transaction fits an entry. Needs a name match, or the exact amount (to the cent)
+ * within DUE_DAYS of a due date, before it counts as a suggestion (score ≥ 4). A card statement
+ * has hundreds of purchases, so "about the same amount, sometime this month" is not enough.
  */
 export function matchScore(txn, e) {
   const out = txn.amount < 0;
   if ((e.type === 'expense') !== out) return 0;
-  // Whole words only ("car" must not match "Card xx1234"); longer names may match the start of a
-  // word ("electric" → "electricity").
-  // A name the user gave this payee counts as well as the bank's own text.
-  const words = `${txn.name || ''} ${txn.description}`.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-  const tokens = nameTokens(e.name);
-  const hits = tokens.filter(t => words.some(w => w === t || (t.length >= 5 && w.startsWith(t)))).length;
-  let score = hits ? (hits === tokens.length ? 4 : 3) : 0;
+  const { hits, of } = nameHits(txn, e);
+  let score = hits ? (hits === of ? 4 : 3) : 0;
 
   const a = Math.abs(txn.amount);
   const est = C.estimateOn(e, txn.date);
-  let exact = false;
+  let toTheCent = false;
   if (est > 0) {
-    const diff = Math.min(...[est, est * C.shareOf(e)].map(c => Math.abs(a - c) / Math.max(c, 1)));
-    exact = diff <= 0.01;
+    const costs = [est, est * C.shareOf(e)];
+    const diff = Math.min(...costs.map(c => Math.abs(a - c) / Math.max(c, 1)));
+    toTheCent = !e.variable && costs.some(c => Math.abs(a - c) < 0.005);
     if (e.variable) score += diff <= 0.5 ? 1.5 : 0;
-    else score += exact ? 3 : diff <= 0.1 ? 1 : 0;
+    else score += diff <= 0.01 ? 3 : diff <= 0.1 ? 1 : 0;
   }
   const due = nearestDue(e, txn.date);
-  if (due) score += 1;
+  const dueDays = due ? Math.abs(C.daysBetween(due, txn.date)) : Infinity;
+  score += dueDays <= DUE_DAYS ? 1 : dueDays <= 7 ? 0.5 : 0;
   if (txn.date < C.addDaysISO(e.startDate, -14)) score -= 3;
   const stop = C.stopDate(e);
   if (stop && txn.date > C.addDaysISO(stop, 14)) score -= 3;
-  if (!hits && !(exact && due)) return Math.min(score, 3.5); // never a suggestion on amount alone
+  if (!hits && !(toTheCent && dueDays <= DUE_DAYS)) return Math.min(score, 3.5); // never a suggestion on a loose amount alone
   return score;
 }
 
@@ -261,7 +271,9 @@ export function suggest(txns, entries, rules = {}, names = {}) {
       const s = matchScore(t, e);
       if (s > bestScore) { best = e; bestScore = s; }
     }
-    return bestScore >= 4 ? { ...t, action: best.id, why: 'match', score: bestScore } : { ...t, action: '', why: null };
+    return bestScore >= 4
+      ? { ...t, action: best.id, why: 'match', score: bestScore, byName: nameHits(t, best).hits > 0 }
+      : { ...t, action: '', why: null };
   });
 }
 

@@ -148,6 +148,43 @@ test('name a payee: shown on this and future imports, choices kept, used in paym
   await expect(page.locator('#view')).toContainText('1 payees with your own names');
 });
 
+test('only deliberate choices are remembered; remembered matches and imported payments can be cleared', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-savings.csv');
+  const salaryCount = await txn(page, 'Salary').count();
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+
+  // Start again: remove what the import logged
+  await tab(page, 'settings');
+  const remove = page.locator('[data-action=remove-imported]');
+  await expect(remove).toContainText('came from bank imports');
+  await remove.click();
+  await expect(page.locator('#toast')).toContainText('Removed');
+  await expect(remove).toHaveCount(0);
+
+  // Re-import: name matches were remembered; ORIGIN (matched on exact amount only) was not
+  await chooseFile(page, 'commbank-savings.csv');
+  await expect(imp(page)).not.toContainText('already imported or ignored');
+  await expect(txn(page, 'Rent November')).toContainText('remembered');
+  await expect(txn(page, 'ORIGIN ENERGY')).not.toContainText('remembered');
+  await expect(txn(page, 'ORIGIN ENERGY').locator('select option:checked')).toHaveText('Electricity & gas');
+  expect(salaryCount).toBeGreaterThan(0);
+
+  // Switching a remembered row to "Skip for now" forgets it
+  await txn(page, 'Rent November').locator('select').selectOption('');
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await chooseFile(page, 'commbank-savings.csv');
+  await expect(txn(page, 'Rent November')).not.toContainText('remembered');
+  await imp(page).locator('.sheet-head [data-close]').click();
+
+  // Forget all remembered matches
+  await tab(page, 'settings');
+  await page.locator('[data-action=forget-rules]').click();
+  await expect(page.locator('#toast')).toContainText('Remembered matches forgotten');
+  await expect(page.locator('[data-action=forget-rules]')).toHaveCount(0);
+});
+
 test('ambiguous dates: the user can switch the order and sees a preview', async ({ page }) => {
   await page.goto('/');
   await chooseFile(page, 'ambiguous-dates.csv');

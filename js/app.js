@@ -619,9 +619,16 @@ async function renderSettings() {
         <div class="row-sub">Imported account</div></div>
         <button type="button" class="btn small" data-action="rename-account" data-key="${esc(k)}" aria-label="Rename ${esc(accountName(k))}">Rename</button>
       </div>`).join('')}
+      ${entryRuleCount() ? `<button class="row" data-action="forget-rules">
+        <div class="row-main"><div class="row-title accent">Forget remembered matches</div>
+        <div class="row-sub">${entryRuleCount()} payee${entryRuleCount() === 1 ? '' : 's'} currently go straight to an entry. “Always ignore” choices are kept.</div></div>
+      </button>` : ''}
+      ${importedPaymentCount() ? `<button class="row" data-action="remove-imported">
+        <div class="row-main"><div class="row-title danger">Remove imported payments</div>
+        <div class="row-sub">${importedPaymentCount()} payment${importedPaymentCount() === 1 ? '' : 's'} came from bank imports. Remove them to import again from scratch.</div></div>
+      </button>` : ''}
     </section>
     <p class="fine pad-x">Download a CSV from your bank's website or app first. The file is read on this device only.
-      ${Object.keys(state.settings.payeeRules || {}).length ? `${Object.keys(state.settings.payeeRules).length} remembered payee choices.` : ''}
       ${Object.keys(state.settings.payeeNames || {}).length ? `${Object.keys(state.settings.payeeNames).length} payees with your own names.` : ''}
       To name a payee, tap <strong>Name</strong> next to one of its transactions when importing.</p>
 
@@ -989,6 +996,38 @@ const findAccount = name => {
   return accountKeys().find(k => k.toLowerCase() === n || accountName(k).toLowerCase() === n);
 };
 
+const entryRuleCount = () => Object.values(state.settings.payeeRules || {}).filter(v => v !== 'ignore').length;
+const importedPaymentCount = () => state.entries.reduce((n, e) => n + (e.payments || []).filter(p => p.source).length, 0);
+
+async function forgetRules() {
+  const n = entryRuleCount();
+  if (!confirm(`Forget the remembered matches for ${n} payee${n === 1 ? '' : 's'}? Payments already logged stay as they are. Payees you chose to always ignore stay ignored.`)) return;
+  state.settings.payeeRules = Object.fromEntries(Object.entries(state.settings.payeeRules || {}).filter(([, v]) => v === 'ignore'));
+  await saveSettings();
+  render();
+  toast('Remembered matches forgotten');
+}
+
+/** Take out everything bank imports logged, so statements can be imported again from scratch. */
+async function removeImported() {
+  const n = importedPaymentCount();
+  if (!confirm(`Remove ${n} payment${n === 1 ? '' : 's'} that came from bank imports? Payments you logged yourself are kept. Entries aren't deleted. This can't be undone, so consider a backup first.`)) return;
+  const now = new Date().toISOString();
+  const changed = state.entries.filter(e => (e.payments || []).some(p => p.source)).map(e => ({
+    ...e, updatedAt: now,
+    // A payment you logged yourself and an import then matched goes back to being yours.
+    payments: e.payments.filter(p => !p.source || p.handLogged).map(p => {
+      if (!p.source) return p;
+      const { source, handLogged, ...mine } = p;
+      return mine;
+    }),
+  }));
+  const removed = state.entries.reduce((k, e) => k + (e.payments || []).filter(p => p.source && !p.handLogged).length, 0);
+  await db.putEntries(changed);
+  await reload();
+  toast(`Removed ${removed} imported payment${removed === 1 ? '' : 's'}`);
+}
+
 /** Give a payee your own name, used on the import screen, for matching and in payment notes. */
 async function renamePayee(key) {
   const names = { ...(state.settings.payeeNames || {}) };
@@ -1167,8 +1206,9 @@ function openImport() {
       <section class="card">${rest.map(txRow).join('')}</section>` : ''}
 
       ${!imp.txns.length ? '<p class="empty-small">Nothing new in this file.</p>' : ''}
-      <p class="fine pad-x">Matched transactions are logged as payments on that entry, and the app remembers the payee
-        for next time. “Skip for now” leaves a transaction to decide on a later import.</p>
+      <p class="fine pad-x">Matched transactions are logged as payments on that entry. Payees you choose yourself, or that
+        match an entry's name, are remembered for next time. Set a remembered one to “Skip for now” to
+        forget it. “Skip for now” leaves a transaction to decide on a later import.</p>
       <button type="button" class="btn primary" data-apply>Import ${chosen} payment${chosen === 1 ? '' : 's'}</button>
     </div>
   </div>`;
@@ -1259,7 +1299,12 @@ async function applyImport() {
 
   for (const t of imp.txns) {
     let d = imp.decision.get(t.id) || '';
-    if (!d) continue;
+    const suggested = imp.suggested.get(t.id) || '';
+    if (!d) {
+      // A remembered choice switched to "Skip for now": it was wrong, so forget it.
+      if (t.why === 'rule' && suggested && suggested !== 'ignore') { delete rules[t.payee]; delete rules[t.oldPayee]; }
+      continue;
+    }
     if (d === 'ignore' || d === 'ignore-payee') {
       ignored.push(t.id); ignoredCount++;
       if (d === 'ignore-payee') rules[t.payee] = 'ignore';
@@ -1276,7 +1321,7 @@ async function applyImport() {
     if (link) {
       // Already logged by hand: keep that payment, but take the bank's actual date and amount.
       const payments = e.payments.map(p => (p.id === link.id
-        ? { ...p, date: t.date, amount, due: p.due || Bank.nearestDue(e, t.date), note: p.note || note, source: t.id }
+        ? { ...p, date: t.date, amount, due: p.due || Bank.nearestDue(e, t.date), note: p.note || note, source: t.id, handLogged: true }
         : p));
       changed.set(e.id, { ...e, payments, updatedAt: now });
       linked++;
@@ -1284,7 +1329,9 @@ async function applyImport() {
       const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note, source: t.id };
       changed.set(e.id, { ...e, payments: [...(e.payments || []), payment], updatedAt: now });
     }
-    if (!d.startsWith('new:')) rules[t.payee] = e.id;
+    // Remember the payee only for choices you made, name matches and existing rules. A match on
+    // amount alone is a one-off guess and mustn't send every future purchase there.
+    if (d !== suggested || t.why === 'rule' || t.byName) rules[t.payee] = e.id;
     logged++;
   }
 
@@ -1689,6 +1736,8 @@ const actions = {
   'manage-budgets': () => { editingBudget = null; openBudgets(); },
   'import-bank': () => $('#bankFile').click(),
   'rename-account': t => renameAccount(t.dataset.key),
+  'forget-rules': forgetRules,
+  'remove-imported': removeImported,
   period: async t => { state.settings.period = t.dataset.period; await saveSettings(); render(); },
   'export-csv': exportCSV,
   'mark-paid': async t => {
