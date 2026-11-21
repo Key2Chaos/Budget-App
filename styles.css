@@ -403,6 +403,10 @@ form.is-variable #prices .icon-btn { order: 4; flex: none; }
 }
 .imp-row.chosen .imp-bottom select { color: var(--accent); font-weight: 600; }
 .imp-list summary { color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 0; }
+.imp-acct { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; font-size: 11px; color: var(--muted); border: 1px solid var(--line, color-mix(in srgb, var(--muted) 35%, transparent)); vertical-align: 1px; }
+.imp-matched > summary { list-style: none; margin: 0 16px 10px; font-size: 14px; color: var(--muted); cursor: pointer; }
+.imp-matched > summary::-webkit-details-marker { display: none; }
+.imp-matched .imp-show { color: var(--accent); font-weight: 600; margin-left: 4px; white-space: nowrap; }
 .imp-sub { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; padding: 4px 0 4px 12px; font-size: 13px; }
 .imp-sub-desc { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-sub .imp-amt { font-weight: 500; }

@@ -508,6 +508,39 @@ test('balance column: checks the amounts, either file order, and spots money out
   assert.equal(B.checkBalances(B.toTransactions(B.parseCSV(bankFile('commbank-credit-card.csv')), B.detectFormat(B.parseCSV(bankFile('commbank-credit-card.csv'))), 'DMY')), null, 'no balances');
 });
 
+test('balance column is optional: blanks are skipped, a mostly-blank column isn’t checked', () => {
+  const t = (date, amount, balance = null) => ({ date, amount, balance });
+  // Blank balances (e.g. pending rows) break the chain, but rows either side aren't compared across the gap
+  const gappy = [t('2026-11-06', -1, 90), t('2026-11-05', -7), t('2026-11-04', -1, 98), t('2026-11-03', -1, 99), t('2026-11-02', -1, 100)];
+  const c = B.checkBalances(gappy);
+  assert.deepEqual([c.pairs, c.normal], [2, 2]);
+  assert.ok(B.balancesAgree(c.normal, c.pairs));
+  assert.deepEqual(c.latest, { date: '2026-11-06', balance: 90 });
+  // Fewer than half the rows have a balance: not checked at all
+  assert.equal(B.checkBalances([t('2026-11-03', -1, 50), t('2026-11-02', -1, 51), t('2026-11-01', -1), t('2026-10-31', -1), t('2026-10-30', -1)]), null);
+  // No two neighbours both have one: nothing to compare
+  assert.equal(B.checkBalances([t('2026-11-03', -1, 50), t('2026-11-02', -1), t('2026-11-01', -1, 52)]), null);
+});
+
+test('transfers: several files at once, each transaction paired using its own account', () => {
+  const txns = [
+    { id: 's1', account: 'Savings', date: '2026-11-19', amount: -250 },
+    { id: 'c1', account: 'Card', date: '2026-11-20', amount: 250 },
+    { id: 's2', account: 'Savings', date: '2026-11-19', amount: 40 },
+  ];
+  const others = txns.map(t => ({ ...t, kind: 'batch' }));
+  const pairs = B.findTransfers(txns, others);
+  assert.equal(pairs.get('s1').id, 'c1');
+  assert.equal(pairs.get('c1').id, 's1');
+  assert.ok(!pairs.has('s2'), 'nothing the other way in another account');
+});
+
+test('remembered lists drop the oldest transactions first, not the oldest decisions', () => {
+  const list = [{ id: 'new', date: '2026-11-01' }, 'legacy', { id: 'old', date: '2020-01-01' }, { id: 'mid', date: '2024-05-05' }];
+  assert.deepEqual(B.keepNewest(list, 2), [{ id: 'new', date: '2026-11-01' }, { id: 'mid', date: '2024-05-05' }]);
+  assert.equal(B.keepNewest(list, 10), list);
+});
+
 test('payee keys ignore card numbers, dates, places', () => {
   assert.equal(B.payeeKey('NETFLIX.COM MELBOURNE AU AUS Card xx1234 Value Date: 02/11/2026'), 'NETFLIX COM MELBOURNE');
   assert.equal(B.payeeKey('Direct Debit 445566 ORIGIN ENERGY'), 'ORIGIN ENERGY');
@@ -581,10 +614,10 @@ test('card lines: the padded merchant column is the payee, whatever town follows
 
 test('import memory (rules, ignored, accounts) survives a backup round trip', () => {
   const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
-    settings: { payeeRules: { 'ORIGIN ENERGY': 'abc', bad: 5 }, ignoredTxns: ['t1', 't1', 7], bankAccounts: [' CommBank  card '],
+    settings: { payeeRules: { 'ORIGIN ENERGY': 'abc', bad: 5 }, ignoredTxns: ['t1', 't1', 7, { id: 't2', date: '2026-11-01' }, { id: 't3', date: 'x' }, { id: 't2' }], bankAccounts: [' CommBank  card '],
       transfers: [{ id: 'x1', account: 'CommBank Card', date: '2026-11-01', amount: 250 }, { id: 'x1', account: 'a', date: '2026-11-01', amount: 1 }, { id: 'x2', date: 'bad' }] } });
   assert.deepEqual(settings.payeeRules, { 'ORIGIN ENERGY': 'abc' });
-  assert.deepEqual(settings.ignoredTxns, ['t1']);
+  assert.deepEqual(settings.ignoredTxns, ['t1', { id: 't2', date: '2026-11-01' }, 't3'], 'ids, or { id, date } (newer)');
   assert.deepEqual(settings.bankAccounts, ['CommBank card']);
   assert.deepEqual(settings.transfers, [{ id: 'x1', account: 'commbank card', date: '2026-11-01', amount: 250 }]);
 });

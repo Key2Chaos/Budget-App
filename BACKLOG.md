@@ -30,7 +30,7 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 |---|------|------|-------|
 | 11 | **Face ID / passcode lock** on opening | M | Possible with WebAuthn. A lighter lock than a banking app's |
 | 12 | **Split one bill across categories**, e.g. part of Apple One counted as cloud storage | M | Tags cover most of this today |
-| 13 | **Bank import, next steps:** a "which column is what" screen for unusual CSVs; presets for NAB, Westpac, ANZ, ING and Up; the Up Bank personal API for one-tap refresh | M | The basic importer is done (see Done) |
+| 13 | **Bank import, next steps:** a "which column is what" screen for unusual CSVs; presets for NAB, Westpac, ANZ, ING and Up; the Up Bank personal API for one-tap refresh; keep *Undo last import* history in backups | M | The basic importer is done (see Done) |
 | 14 | **Savings goals**: target, date and progress | M | |
 | 15 | **Push notifications** for bills due or notice deadlines | L | iPhone Home Screen apps support web push, but it needs a small server |
 | 16 | **iCloud sync (CloudKit)** across devices | L | Needs an Apple Developer account ($99/yr). Today's iCloud Drive backups work without it |
@@ -72,3 +72,4 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-22 | Bank import fixes: a "Value Date" column is never read as the amount; preferred column names win (Transaction Date, Description); CR / DR amounts |
 | 2026-11-22 | Bank import: transfers between your own accounts (card payments, savings) aren't counted as spending or income, and are taken out of a catch-all when the other side turns up; refunds go with the payee's purchases instead of income |
 | 2026-11-22 | Bank import: Undo last import (steps back through the last 5); amounts checked against the Balance column, "money out is +" files spotted and switched, newest balance sets "Balance now" |
+| 2026-11-22 | Bank import: several files at once (own account/check each, transfers paired between them); matched rows grouped and folded away; ignored list keeps the newest transactions (20,000) instead of silently dropping recent decisions; balance check skips blanks |

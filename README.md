@@ -75,11 +75,21 @@ No backend, no account. All data lives on the device in IndexedDB.
     e.g. "ORIGIN ENERGY" → *Electricity & gas*, or "always ignore this payee". Amount-only matches
     aren't remembered, so one coincidence can't send every later purchase from that shop to a bill.
     Set a remembered row to *Skip for now* to forget it.
-  - **Balance column:** when a file has one, the amounts are checked against it (each row's balance
-    should be the previous one plus its amount), and the review screen says whether they add up. A file
+  - **Several files at once:** choose more than one CSV (e.g. your savings account and your card, or
+    a few months of one account). Each file gets its own account, date order and sign, and is checked
+    against its own Balance column. Transfers between them are paired up, and each account's unmatched
+    spending goes to its own catch-all. A new file that covers the same dates as another of the same
+    kind is treated as a second account ("CommBank account 2"); different months are one account.
+  - **Matched rows need no attention.** Several matches from one payee to the same entry share a
+    row, and a long list is folded away ("✓ 40 transactions going to 12 entries, nothing to do")
+    with *Review* to open it.
+  - **Balance column (optional):** when a file has one, the amounts are checked against it (each row's balance
+    should be the previous one plus its amount), and the review screen says whether they add up. Blank
+    balances are skipped, a file where most rows have none isn't checked, and a mismatch is only a
+    warning — you can still import. A file
     that shows money out as "+" is spotted this way and switched round; you can also switch it with
     *Money out is − / +*. The newest balance can set **Balance now** for *Until payday* (on by default
-    unless you typed a balance yourself).
+    unless you typed a balance yourself; with several files, only one can set it).
   - **Undo last import** (Settings) takes back just the most recent import: its payments (wherever
     they've been moved), the entries it added (unless something else is logged on them), its ignored
     transactions and transfers, the payees it remembered, and the balance it set. Payments you'd logged
@@ -89,6 +99,8 @@ No backend, no account. All data lives on the device in IndexedDB.
     logged yourself, your payee names and "always ignore" / transfer payees are kept. *Forget remembered
     matches* on its own is there too.
   - **No duplicates:** importing an overlapping statement never logs the same transaction twice.
+    Ignored transactions and transfers are remembered (up to 20,000 each, dropping the oldest
+    transactions first, so a recent statement never brings back something you ignored).
     Choose the same account each time; the app suggests the one a file was imported into before.
   - **Payments you logged yourself** (typed in, or *Mark paid*) aren't doubled up. A bank transaction
     within 4 days and 1% of one updates it to the bank's actual date and amount, shown as

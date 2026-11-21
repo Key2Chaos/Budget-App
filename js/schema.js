@@ -166,9 +166,14 @@ function normalizeSettings(raw) {
       .filter(([k, v]) => typeof k === 'string' && k && typeof v === 'string' && v));
     if (Object.keys(rules).length) out.payeeRules = rules;
   }
+  // Each one is an id (older data) or { id, date } (since Nov 2026: so the oldest can be dropped first).
   if (Array.isArray(raw?.ignoredTxns)) {
-    const ids = [...new Set(raw.ignoredTxns.filter(x => typeof x === 'string' && x))].slice(-5000);
-    if (ids.length) out.ignoredTxns = ids;
+    const seen = new Set();
+    const list = raw.ignoredTxns
+      .map(x => (typeof x === 'string' ? x : x && typeof x.id === 'string' ? (isDate(x.date) ? { id: x.id, date: x.date } : x.id) : null))
+      .filter(x => { const id = typeof x === 'string' ? x : x?.id; return id && !seen.has(id) && seen.add(id); })
+      .slice(-20000);
+    if (list.length) out.ignoredTxns = list;
   }
   // Transfers between your own accounts (added Nov 2026, optional): { id, account, date, amount }.
   // Not logged as payments; kept so they aren't imported again, and to pair with the other side.
@@ -176,7 +181,7 @@ function normalizeSettings(raw) {
     const seen = new Set();
     const list = raw.transfers.filter(x => x && typeof x.id === 'string' && x.id && !seen.has(x.id) && seen.add(x.id)
       && typeof x.account === 'string' && isDate(x.date) && Number.isFinite(x.amount))
-      .map(x => ({ id: x.id, account: x.account.toLowerCase(), date: x.date, amount: x.amount })).slice(-3000);
+      .map(x => ({ id: x.id, account: x.account.toLowerCase(), date: x.date, amount: x.amount })).slice(-20000);
     if (list.length) out.transfers = list;
   }
   if (Array.isArray(raw?.bankAccounts)) {

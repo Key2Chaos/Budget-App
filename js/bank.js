@@ -173,37 +173,54 @@ export function toTransactions(rows, fmt, order) {
 /**
  * Check the amounts against the Balance column: each row's balance should be the previous row's
  * plus its amount. Works for files in either order (newest first, like CommBank, or oldest first).
- * Returns null without enough balances, else
+ * Only neighbouring rows that both have a balance are compared, and a file where fewer than half
+ * the rows have one isn't checked at all (some banks leave it blank, e.g. on pending rows).
+ * Returns null when there's nothing to check, else
  *   { pairs, normal, flipped, latest: { date, balance } }
  * where `normal` counts neighbouring rows that add up as read, and `flipped` those that add up with
- * every amount's sign reversed (a file that shows money out as positive). Pass the transactions
- * as read, before any flip.
+ * every amount's sign reversed (a file that shows money out as positive). Pass one file's
+ * transactions in file order, as read, before any flip.
  */
 export function checkBalances(txns) {
-  const rows = txns.filter(t => Number.isFinite(t.balance));
-  if (rows.length < 2) return null;
+  const has = t => Number.isFinite(t?.balance);
+  const withBal = txns.filter(has);
+  if (withBal.length < 2 || withBal.length < txns.length / 2) return null;
   const eq = (a, b) => Math.abs(a - b) < 0.005;
-  const first = rows[0], last = rows.at(-1);
-  let down = 0, up = 0, downF = 0, upF = 0;
-  for (let i = 0; i < rows.length - 1; i++) {
-    const a = rows[i], b = rows[i + 1];
+  let pairs = 0, down = 0, up = 0, downF = 0, upF = 0;
+  for (let i = 0; i < txns.length - 1; i++) {
+    const a = txns[i], b = txns[i + 1];
+    if (!has(a) || !has(b)) continue;
+    pairs++;
     if (eq(a.balance, b.balance + a.amount)) down++;  // newest first
     if (eq(a.balance, b.balance - a.amount)) downF++;
     if (eq(b.balance, a.balance + b.amount)) up++;    // oldest first
     if (eq(b.balance, a.balance - b.amount)) upF++;
   }
+  if (!pairs) return null;
+  const first = withBal[0], last = withBal.at(-1);
   // Which way the file runs: from the dates, else whichever way adds up better
   const newestFirst = first.date !== last.date ? first.date > last.date : Math.max(down, downF) >= Math.max(up, upF);
-  return {
-    pairs: rows.length - 1,
-    normal: newestFirst ? down : up,
-    flipped: newestFirst ? downF : upF,
-    latest: { date: (newestFirst ? first : last).date, balance: (newestFirst ? first : last).balance },
-  };
+  const latest = newestFirst ? first : last;
+  return { pairs, normal: newestFirst ? down : up, flipped: newestFirst ? downF : upF,
+    latest: { date: latest.date, balance: latest.balance } };
 }
 
 /** Enough neighbouring rows add up (allowing for the odd skipped row) to trust the file as read. */
 export const balancesAgree = (count, pairs) => pairs > 0 && count / pairs >= 0.8;
+
+// ---------- Remembered lists ----------
+
+/**
+ * Cap a list of remembered transactions ({ id, date }, or a bare id from older data) at `max`,
+ * dropping the oldest *transactions* first (bare ids before any dated one), in their original order.
+ */
+export function keepNewest(list, max) {
+  if (list.length <= max) return list;
+  const dated = list.map((x, i) => ({ i, d: typeof x === 'string' ? '' : x.date || '' }));
+  dated.sort((a, b) => a.d.localeCompare(b.d) || a.i - b.i);
+  const keep = new Set(dated.slice(-max).map(o => o.i));
+  return list.filter((_, i) => keep.has(i));
+}
 
 // ---------- Payee keys & transaction ids ----------
 
@@ -470,12 +487,13 @@ export const TRANSFER_DAYS = 3;
  * Pair transactions with the other side of a transfer in another of your accounts: the same amount
  * the other way, within TRANSFER_DAYS. others: [{ id, account, date, amount (bank sign) }], e.g.
  * transactions already imported into another account's catch-all entry. Each one pairs at most once,
- * nearest date first. Returns Map txnId → other.
+ * nearest date first. `account` is the transactions' account, unless each has its own `account`.
+ * Returns Map txnId → other.
  */
 export function findTransfers(txns, others, account) {
-  const acc = String(account).toLowerCase();
   const pairs = [];
   for (const t of txns) {
+    const acc = String(t.account ?? account).toLowerCase(); // each transaction's own account, when several files are imported together
     for (const o of others) {
       if (String(o.account).toLowerCase() === acc) continue;
       if (Math.abs(o.amount + t.amount) >= 0.005) continue;
