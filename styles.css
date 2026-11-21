@@ -141,6 +141,8 @@ button.row:active { background: var(--fill); }
   background: var(--card); color: var(--accent); font-weight: 600; font-size: 17px;
 }
 .btn.primary { background: var(--accent); color: #fff; }
+.btn.primary.danger-fill { background: var(--neg); }
+.small-text { font-size: 13px; }
 .btn.small { width: auto; padding: 6px 12px; font-size: 14px; background: var(--fill); border-radius: 99px; }
 .btn.danger-btn { color: var(--neg); margin-top: 8px; }
 .link { border: 0; background: none; color: var(--accent); font-size: 17px; padding: 8px 0; }

@@ -623,9 +623,9 @@ async function renderSettings() {
         <div class="row-main"><div class="row-title accent">Forget remembered matches</div>
         <div class="row-sub">${entryRuleCount()} payee${entryRuleCount() === 1 ? '' : 's'} currently go straight to an entry. “Always ignore” choices are kept.</div></div>
       </button>` : ''}
-      ${importedPaymentCount() ? `<button class="row" data-action="remove-imported">
-        <div class="row-main"><div class="row-title danger">Remove imported payments</div>
-        <div class="row-sub">${importedPaymentCount()} payment${importedPaymentCount() === 1 ? '' : 's'} came from bank imports. Remove them to import again from scratch.</div></div>
+      ${hasImportData() ? `<button class="row" data-action="undo-imports">
+        <div class="row-main"><div class="row-title danger">Undo bank imports…</div>
+        <div class="row-sub">Remove imported payments, entries imports added, remembered matches and ignored transactions, to start again.</div></div>
       </button>` : ''}
     </section>
     <p class="fine pad-x">Download a CSV from your bank's website or app first. The file is read on this device only.
@@ -1008,24 +1008,83 @@ async function forgetRules() {
   toast('Remembered matches forgotten');
 }
 
-/** Take out everything bank imports logged, so statements can be imported again from scratch. */
-async function removeImported() {
-  const n = importedPaymentCount();
-  if (!confirm(`Remove ${n} payment${n === 1 ? '' : 's'} that came from bank imports? Payments you logged yourself are kept. Entries aren't deleted. This can't be undone, so consider a backup first.`)) return;
-  const now = new Date().toISOString();
-  const changed = state.entries.filter(e => (e.payments || []).some(p => p.source)).map(e => ({
-    ...e, updatedAt: now,
-    // A payment you logged yourself and an import then matched goes back to being yours.
-    payments: e.payments.filter(p => !p.source || p.handLogged).map(p => {
-      if (!p.source) return p;
-      const { source, handLogged, ...mine } = p;
-      return mine;
-    }),
-  }));
-  const removed = state.entries.reduce((k, e) => k + (e.payments || []).filter(p => p.source && !p.handLogged).length, 0);
-  await db.putEntries(changed);
-  await reload();
-  toast(`Removed ${removed} imported payment${removed === 1 ? '' : 's'}`);
+/** Entries that "Add as entry" created during a bank import. */
+const createdByImport = e => !!e.fromImport || /^Added from a bank import/.test(e.notes || '');
+const hasImportData = () => importedPaymentCount() > 0 || entryRuleCount() > 0
+  || (state.settings.ignoredTxns || []).length > 0 || state.entries.some(createdByImport);
+
+/**
+ * "Undo bank imports": shows what imports left behind and removes it, so statements can be
+ * imported again from scratch. Entries an import created are listed so you can keep the good ones.
+ */
+function openUndoImports() {
+  const created = state.entries.filter(createdByImport).sort((a, b) => a.name.localeCompare(b.name));
+  const pays = importedPaymentCount();
+  const rules = entryRuleCount();
+  const ignored = (state.settings.ignoredTxns || []).length;
+  const n = (k, one, many = `${one}s`) => `${k} ${k === 1 ? one : many}`;
+  sheet.innerHTML = `
+  <form id="undoImports" method="dialog">
+    <div class="sheet-head">
+      <button type="button" class="link" data-close>Cancel</button>
+      <h2 tabindex="-1" autofocus>Undo bank imports</h2>
+      <span></span>
+    </div>
+    <div class="sheet-body">
+      <p class="fine pad-x">Removes what bank imports added, so you can import your statements again from scratch.
+        Export a backup first if you might want it back.</p>
+      <section class="card form">
+        <label class="field toggle"><span>Remove ${n(pays, 'imported payment')}</span>
+          <input type="checkbox" name="payments" ${pays ? 'checked' : 'disabled'}></label>
+        <label class="field toggle"><span>Forget ${n(rules, 'remembered match', 'remembered matches')}</span>
+          <input type="checkbox" name="rules" ${rules ? 'checked' : 'disabled'}></label>
+        <label class="field toggle"><span>Show ${n(ignored, 'ignored transaction')} again</span>
+          <input type="checkbox" name="ignored" ${ignored ? 'checked' : 'disabled'}></label>
+      </section>
+      ${created.length ? `<div class="group-title">Entries added by imports (${created.length}) — switch off any to keep</div>
+      <section class="card form">${created.map(e => `
+        <label class="field toggle"><span>${esc(e.name)}<br><span class="muted small-text">${esc(C.FREQ[e.frequency]?.label || '')} · from ${esc(fmtDate(e.startDate))}</span></span>
+          <input type="checkbox" name="del" value="${esc(e.id)}" checked></label>`).join('')}
+      </section>` : ''}
+      <p class="fine pad-x">Kept: payments you logged yourself, your other entries, your names for payees, account names
+        and payees you chose to always ignore.</p>
+      <button type="button" class="btn primary danger-fill" data-undo>Undo imports</button>
+    </div>
+  </form>`;
+  const form = $('#undoImports');
+  form.addEventListener('click', async ev => {
+    if (ev.target.closest('[data-close]')) return closeSheet();
+    if (!ev.target.closest('[data-undo]')) return;
+    const del = new Set([...form.querySelectorAll('[name=del]:checked')].map(x => x.value));
+    const what = [
+      form.payments.checked && n(pays, 'payment'),
+      del.size && n(del.size, 'entry', 'entries'),
+    ].filter(Boolean);
+    if (what.length && !confirm(`Delete ${what.join(' and ')}? This can't be undone.`)) return;
+    const now = new Date().toISOString();
+    if (form.payments.checked) {
+      const changed = state.entries.filter(e => !del.has(e.id) && (e.payments || []).some(p => p.source)).map(e => ({
+        ...e, updatedAt: now,
+        // A payment you logged yourself and an import then matched goes back to being yours.
+        payments: e.payments.filter(p => !p.source || p.handLogged).map(p => {
+          if (!p.source) return p;
+          const { source, handLogged, ...mine } = p;
+          return mine;
+        }),
+      }));
+      if (changed.length) await db.putEntries(changed);
+    }
+    for (const id of del) await db.deleteEntry(id);
+    const keptRules = Object.entries(state.settings.payeeRules || {})
+      .filter(([, v]) => (form.rules.checked ? v === 'ignore' : !del.has(v)));
+    state.settings.payeeRules = Object.fromEntries(keptRules);
+    if (form.ignored.checked) state.settings.ignoredTxns = [];
+    await saveSettings();
+    closeSheet();
+    await reload();
+    toast('Bank imports undone');
+  });
+  if (!sheet.open) { document.body.classList.add('modal-open'); sheet.showModal(); }
 }
 
 /** Give a payee your own name, used on the import screen, for matching and in payment notes. */
@@ -1290,7 +1349,7 @@ async function applyImport() {
     const start = g.txns[0].date;
     changed.set(id, {
       id, type: g.type, name: g.name, category: '', method: accountName(imp.account), frequency: g.frequency, startDate: start,
-      contractEnd: null, endsAtExpiry: false, endDate: null, notes: `Added from a bank import (${g.payee})`, tags: [],
+      contractEnd: null, endsAtExpiry: false, endDate: null, notes: `Added from a bank import (${g.payee})`, tags: [], fromImport: true,
       prices: [{ from: start, amount: g.variable ? null : g.amount, frequency: g.frequency }],
       variable: g.variable, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
     });
@@ -1738,7 +1797,7 @@ const actions = {
   'import-bank': () => $('#bankFile').click(),
   'rename-account': t => renameAccount(t.dataset.key),
   'forget-rules': forgetRules,
-  'remove-imported': removeImported,
+  'undo-imports': openUndoImports,
   period: async t => { state.settings.period = t.dataset.period; await saveSettings(); render(); },
   'export-csv': exportCSV,
   'mark-paid': async t => {

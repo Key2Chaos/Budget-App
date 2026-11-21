@@ -65,8 +65,10 @@ No backend, no account. All data lives on the device in IndexedDB.
     e.g. "ORIGIN ENERGY" → *Electricity & gas*, or "always ignore this payee". Amount-only matches
     aren't remembered, so one coincidence can't send every later purchase from that shop to a bill.
     Set a remembered row to *Skip for now* to forget it.
-  - **Starting again:** Settings → *Forget remembered matches*, and *Remove imported payments*
-    (payments you logged yourself are kept).
+  - **Starting again:** Settings → *Undo bank imports* removes imported payments, the entries imports
+    added (switch off any you want to keep), remembered matches and the ignored list. Payments you
+    logged yourself, your payee names and "always ignore" payees are kept. *Forget remembered
+    matches* on its own is there too.
   - **No duplicates:** importing an overlapping statement never logs the same transaction twice.
     Choose the same account each time; the app suggests the one a file was imported into before.
   - **Payments you logged yourself** (typed in, or *Mark paid*) aren't doubled up. A bank transaction

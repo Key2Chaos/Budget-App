@@ -155,13 +155,14 @@ test('only deliberate choices are remembered; remembered matches and imported pa
   await imp(page).locator('.sheet-head [data-apply]').click();
   await expect(page.locator('#toast')).toContainText('Logged');
 
-  // Start again: remove what the import logged
+  // Remove only the imported payments (keep remembered matches)
   await tab(page, 'settings');
-  const remove = page.locator('[data-action=remove-imported]');
-  await expect(remove).toContainText('came from bank imports');
-  await remove.click();
-  await expect(page.locator('#toast')).toContainText('Removed');
-  await expect(remove).toHaveCount(0);
+  await page.locator('[data-action=undo-imports]').click();
+  const undo = page.locator('#undoImports');
+  await expect(undo).toContainText(/Remove \d+ imported payments/);
+  await undo.locator('[name=rules]').uncheck();
+  await undo.locator('[data-undo]').click();
+  await expect(page.locator('#toast')).toContainText('Bank imports undone');
 
   // Re-import: name matches were remembered; ORIGIN (matched on exact amount only) was not
   await chooseFile(page, 'commbank-savings.csv');
@@ -180,9 +181,41 @@ test('only deliberate choices are remembered; remembered matches and imported pa
 
   // Forget all remembered matches
   await tab(page, 'settings');
+  await expect(page.locator('[data-action=undo-imports]')).toBeVisible();
   await page.locator('[data-action=forget-rules]').click();
   await expect(page.locator('#toast')).toContainText('Remembered matches forgotten');
   await expect(page.locator('[data-action=forget-rules]')).toHaveCount(0);
+});
+
+test('undo bank imports also deletes the entries imports added, so they stop matching', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-credit-card.csv');
+  for (const name of ['Disney Plus', 'Google One']) await imp(page).locator('.label-row', { hasText: name }).locator('[data-new]').click();
+  await txn(page, 'WOOLWORTHS').locator('select').selectOption('ignore');
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('added 2 entries');
+
+  await tab(page, 'settings');
+  await page.locator('[data-action=undo-imports]').click();
+  const undo = page.locator('#undoImports');
+  await expect(undo).toContainText('Entries added by imports (2) — switch off any to keep');
+  await undo.screenshot({ path: test.info().outputPath('undo-imports.png') });
+  await undo.locator('label', { hasText: 'Google One' }).locator('[name=del]').uncheck();   // keep this one
+  await undo.locator('[data-undo]').click();
+  await expect.poll(() => page.dialogs.at(-1)).toMatch(/Delete \d+ payments and 1 entry/);
+  await expect(page.locator('#toast')).toContainText('Bank imports undone');
+
+  await tab(page, 'entries');
+  await expect(row(page, 'Disney Plus')).toHaveCount(0);
+  await expect(row(page, 'Google One')).toHaveCount(1);
+
+  // Importing again: Disney is a suggestion again, not matched to anything; ignored rows come back
+  await chooseFile(page, 'commbank-credit-card.csv');
+  await expect(imp(page)).not.toContainText('already imported or ignored');
+  await expect(imp(page).locator('.label-row', { hasText: 'Disney Plus' })).toContainText('Add as entry');
+  await expect(txn(page, 'DISNEY PLUS').first()).not.toContainText('remembered');
+  await expect(txn(page, 'WOOLWORTHS')).toHaveCount(1);
+  await expect(txn(page, 'GOOGLE').first().locator('select option:checked')).toHaveText('Google One'); // kept entry, matched by name
 });
 
 test('ambiguous dates: the user can switch the order and sees a preview', async ({ page }) => {

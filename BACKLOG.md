@@ -64,3 +64,4 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-21 | Bank import: your own names for payees (used for display and matching); payment notes shown in the payment log |
 | 2026-11-21 | Bank import: stricter amount-only matching (exact, ±3 days), only deliberate choices remembered, Forget remembered matches, Remove imported payments |
 | 2026-11-21 | Bank import: matching on name, amount and date together, with the matched signals shown on each row |
+| 2026-11-21 | Undo bank imports: also deletes entries that imports added (choose which to keep) and clears the ignored list |
