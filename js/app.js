@@ -656,7 +656,7 @@ function openSheet(entry = null) {
   <form id="entryForm" novalidate>
     <div class="sheet-head">
       <button type="button" class="link" data-close>Cancel</button>
-      <h2>${isNew ? 'New entry' : 'Edit entry'}</h2>
+      <h2 tabindex="-1" autofocus>${isNew ? 'New entry' : 'Edit entry'}</h2>
       <button type="submit" class="link strong">Save</button>
     </div>
     <div class="sheet-body">
@@ -861,7 +861,7 @@ function openBudgets() {
   const kind = b?.kind || 'category';
   sheet.innerHTML = `
   <div id="budgets">
-    <div class="sheet-head"><span></span><h2>Budgets</h2>
+    <div class="sheet-head"><span></span><h2 tabindex="-1" autofocus>Budgets</h2>
       <button type="button" class="link strong" data-close>Done</button></div>
     <div class="sheet-body">
       <p class="fine manage-help">A monthly limit for a category or a tag. The Overview shows how much of it this month uses,
@@ -958,7 +958,7 @@ function openManage(kind = manageKind) {
   <div id="manage">
     <div class="sheet-head">
       <span></span>
-      <h2>Manage labels</h2>
+      <h2 tabindex="-1" autofocus>Manage labels</h2>
       <button type="button" class="link strong" data-close>Done</button>
     </div>
     <div class="sheet-body">
