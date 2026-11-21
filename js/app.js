@@ -31,6 +31,8 @@ const state = {
   search: '',
   range: 12,
   sel: null,
+  tags: [],              // active tag filter (entries must have ALL of these)
+  breakdown: 'category', // 'category' | 'tag'
 };
 
 // ---------- Helpers ----------
@@ -70,6 +72,44 @@ function toast(msg) {
   toast._t = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
+// ---------- Tags ----------
+/** Trim, collapse whitespace, cap length; de-dupe case-insensitively keeping first spelling. */
+function normalizeTags(list) {
+  const seen = new Set(), out = [];
+  for (const raw of list || []) {
+    const t = String(raw ?? '').replace(/^#/, '').replace(/\s+/g, ' ').trim().slice(0, 30);
+    if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); out.push(t); }
+  }
+  return out;
+}
+const hasTag = (e, t) => (e.tags || []).some(x => x.toLowerCase() === t.toLowerCase());
+
+/** All tags in use, most-used first. */
+function allTags() {
+  const counts = new Map();
+  for (const e of state.entries) for (const t of e.tags || []) {
+    const k = t.toLowerCase();
+    const cur = counts.get(k) || { name: t, n: 0 };
+    cur.n++; counts.set(k, cur);
+  }
+  return [...counts.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)).map(x => x.name);
+}
+
+/** Entries passing the active tag filter. */
+const tagFiltered = () => state.entries.filter(e => state.tags.every(t => hasTag(e, t)));
+
+function tagBar() {
+  const tags = allTags();
+  // drop selections for tags that no longer exist
+  state.tags = state.tags.filter(t => tags.some(x => x.toLowerCase() === t.toLowerCase()));
+  if (!tags.length) return '';
+  return `<div class="tagbar" role="group" aria-label="Filter by tag">
+    ${state.tags.length ? '<button class="chip clear" data-action="tags-clear">Clear</button>' : ''}
+    ${tags.map(t => `<button class="chip ${state.tags.some(x => x.toLowerCase() === t.toLowerCase()) ? 'on' : ''}"
+      data-action="tag" data-tag="${esc(t)}">#${esc(t)}</button>`).join('')}
+  </div>`;
+}
+
 async function saveSettings() { await db.saveSettings(state.settings); }
 async function reload() { state.entries = await db.allEntries(); render(); }
 
@@ -105,17 +145,26 @@ function renderOverview() {
 
   const now = new Date();
   const today = C.todayISO();
-  const cur = C.monthTotals(state.entries, now.getFullYear(), now.getMonth());
+  const entries = tagFiltered();
+  const needsBackup = !state.settings.lastBackup || C.daysBetween(state.settings.lastBackup.slice(0, 10), today) > 30;
+  const backupBanner = needsBackup ? `<button class="banner" data-action="go-settings">
+      <strong>Back up your data</strong><span>Your budget lives only on this device. Save a copy to iCloud Drive.</span></button>` : '';
+
+  if (!entries.length) {
+    view.innerHTML = `${backupBanner}${tagBar()}<p class="empty-small">No entries have all of these tags.</p>`;
+    return;
+  }
+  const cur = C.monthTotals(entries, now.getFullYear(), now.getMonth());
 
   // Chart range
   let past = state.range;
   if (state.range === 'all') {
-    const first = state.entries.reduce((m, e) => (e.startDate < m ? e.startDate : m), today);
+    const first = entries.reduce((m, e) => (e.startDate < m ? e.startDate : m), today);
     const f = C.parse(first);
     past = Math.max(2, (now.getFullYear() - f.getFullYear()) * 12 + now.getMonth() - f.getMonth() + 1);
   }
   const start = new Date(now.getFullYear(), now.getMonth() - past + 1, 1);
-  chartData = C.series(state.entries, start.getFullYear(), start.getMonth(), past + FORECAST_MONTHS);
+  chartData = C.series(entries, start.getFullYear(), start.getMonth(), past + FORECAST_MONTHS);
   const currentIdx = past - 1;
   if (state.sel == null || state.sel >= chartData.length) state.sel = currentIdx;
 
@@ -142,34 +191,37 @@ function renderOverview() {
 
   // Upcoming payments (next 14 days)
   const horizon = C.addDaysISO(today, 14);
-  const upcoming = state.entries
+  const upcoming = entries
     .map(e => ({ e, due: C.nextDue(e, today) }))
     .filter(x => x.due && x.due <= horizon)
     .sort((a, b) => a.due.localeCompare(b.due))
     .slice(0, 6);
 
   // Contracts ending soon / recently out of contract
-  const contracts = state.entries
+  const contracts = entries
     .filter(e => e.contractEnd && e.frequency !== 'once' && !(e.endDate && e.endDate < today))
     .map(e => ({ e, days: C.daysBetween(today, e.contractEnd) }))
     .filter(x => x.days <= 60 && (x.days >= 0 || (!x.e.endsAtExpiry && x.days >= -60)))
     .sort((a, b) => a.days - b.days);
 
-  // Category breakdown (this month's expenses)
+  // Breakdown of this month's expenses, by category or by tag
+  const byTag = state.breakdown === 'tag';
   const cats = {};
-  for (const e of state.entries) {
+  for (const e of entries) {
     if (e.type !== 'expense') continue;
     const v = C.monthAmount(e, now.getFullYear(), now.getMonth());
-    if (v > 0) cats[e.category || 'Other'] = (cats[e.category || 'Other'] || 0) + v;
+    if (v <= 0) continue;
+    const keys = byTag ? (e.tags?.length ? e.tags.map(t => '#' + t) : ['Untagged']) : [e.category || 'Other'];
+    for (const k of keys) cats[k] = (cats[k] || 0) + v;
   }
   const catList = Object.entries(cats).sort((a, b) => b[1] - a[1]);
   const catMax = catList.length ? catList[0][1] : 1;
-
-  const needsBackup = !state.settings.lastBackup || C.daysBetween(state.settings.lastBackup.slice(0, 10), today) > 30;
+  const filterNote = state.tags.length ? `<p class="fine">Showing only entries tagged ${state.tags.map(t => '#' + esc(t)).join(' + ')}.</p>` : '';
 
   view.innerHTML = `
-    ${needsBackup ? `<button class="banner" data-action="go-settings">
-      <strong>Back up your data</strong><span>Your budget lives only on this device. Save a copy to iCloud Drive.</span></button>` : ''}
+    ${backupBanner}
+    ${tagBar()}
+    ${filterNote}
 
     <section class="card summary">
       <div class="summary-head">${esc(monthLong.format(now))}</div>
@@ -222,7 +274,12 @@ function renderOverview() {
       </div></section>` : ''}
 
     ${catList.length ? `<section class="card">
-      <div class="card-head"><h3>Where it goes</h3><span class="muted">this month</span></div>
+      <div class="card-head"><h3>Where it goes</h3>
+        <div class="seg small">
+          <button data-action="breakdown" data-by="category" class="${byTag ? '' : 'on'}">Category</button>
+          <button data-action="breakdown" data-by="tag" class="${byTag ? 'on' : ''}">Tag</button>
+        </div></div>
+      <p class="fine">This month${byTag ? ' · an entry with several tags counts towards each' : ''}</p>
       <div class="cats">${catList.map(([name, v]) => `
         <div class="cat">
           <div class="cat-top"><span>${esc(name)}</span><span>${money(v)} <span class="muted">${Math.round((v / cur.expense) * 100)}%</span></span></div>
@@ -256,9 +313,10 @@ function updateReadout(currentIdx) {
 function renderEntries() {
   const today = C.todayISO();
   const q = state.search.trim().toLowerCase();
-  const list = state.entries
+  const list = tagFiltered()
     .filter(e => state.filter === 'all' || e.type === state.filter)
-    .filter(e => !q || [e.name, e.category, e.method, e.notes].some(f => (f || '').toLowerCase().includes(q)));
+    .filter(e => !q || [e.name, e.category, e.method, e.notes, ...(e.tags || []).map(t => '#' + t)]
+      .some(f => (f || '').toLowerCase().includes(q)));
 
   const recurring = list.filter(e => e.frequency !== 'once' && !C.isEnded(e, today))
     .sort((a, b) => C.monthlyEquivalent(b) - C.monthlyEquivalent(a));
@@ -280,8 +338,10 @@ function renderEntries() {
     ].filter(Boolean).map(esc).join(' · ');
     const perMonth = e.frequency !== 'once' && e.frequency !== 'monthly'
       ? `<small>≈ ${money(C.monthlyEquivalent(e))}/mo</small>` : '';
+    const tags = e.tags?.length
+      ? `<div class="row-tags">${e.tags.map(t => `<span class="chip tiny">#${esc(t)}</span>`).join('')}</div>` : '';
     return `<button class="row" data-action="edit" data-id="${e.id}">
-      <div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub">${sub}</div></div>
+      <div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub">${sub}</div>${tags}</div>
       <div class="row-amt ${inc ? 'pos' : 'neg'}">${sign}${money(price)}${perMonth}</div>
     </button>`;
   };
@@ -298,7 +358,8 @@ function renderEntries() {
         ${[['all', 'All'], ['expense', 'Expenses'], ['income', 'Income']].map(([v, l]) =>
           `<button data-action="filter" data-filter="${v}" class="${state.filter === v ? 'on' : ''}">${l}</button>`).join('')}
       </div>
-      <input type="search" id="search" placeholder="Search" value="${esc(state.search)}" autocomplete="off">
+      <input type="search" id="search" placeholder="Search names, notes, #tags" value="${esc(state.search)}" autocomplete="off">
+      ${tagBar()}
     </div>
     ${list.length ? '' : `<p class="empty-small">${state.entries.length ? 'Nothing matches.' : 'No entries yet. Tap + to add one.'}</p>`}
     ${group('Recurring', recurring, recurring.length ? totals : '')}
@@ -413,6 +474,15 @@ function openSheet(entry = null) {
           <input name="method" list="dl-method" placeholder="Choose or type" value="${esc(e.method)}" autocomplete="off"></label>
       </section>
 
+      <div class="group-title">Tags <span class="muted">— e.g. work, shared, tax-deductible</span></div>
+      <section class="card form">
+        <div class="tag-edit" id="tagEdit">
+          <span id="tagChips"></span>
+          <input id="tagInput" placeholder="Add tag…" autocomplete="off" autocapitalize="none" enterkeyhint="done" aria-label="Add tag">
+        </div>
+      </section>
+      <div class="tag-suggest" id="tagSuggest"></div>
+
       <section class="card form recurring-only">
         <label class="field"><span>Contract ends</span>
           <input type="date" name="contractEnd" value="${esc(e.contractEnd || '')}"></label>
@@ -451,12 +521,47 @@ function openSheet(entry = null) {
   $('#dl-method').innerHTML = [...new Set([...METHODS, ...usedMethods])].map(c => `<option value="${esc(c)}">`).join('');
   syncType(); syncFreq();
 
+  // Tag editor
+  let tags = normalizeTags(e.tags);
+  const tagInput = $('#tagInput', form);
+  const renderTags = () => {
+    $('#tagChips', form).innerHTML = tags.map(t =>
+      `<button type="button" class="chip on" data-remove-tag="${esc(t)}" aria-label="Remove tag ${esc(t)}">#${esc(t)} <span aria-hidden="true">×</span></button>`).join('');
+    const q = tagInput.value.trim().toLowerCase();
+    const suggestions = allTags().filter(t => !tags.some(x => x.toLowerCase() === t.toLowerCase()) && (!q || t.toLowerCase().includes(q))).slice(0, 12);
+    $('#tagSuggest', form).innerHTML = suggestions.map(t =>
+      `<button type="button" class="chip" data-add-tag="${esc(t)}">+ #${esc(t)}</button>`).join('');
+  };
+  const addTags = list => { tags = normalizeTags([...tags, ...list]); renderTags(); };
+  const commitInput = () => { if (tagInput.value.trim()) { addTags(tagInput.value.split(',')); tagInput.value = ''; renderTags(); } };
+  form._commitTags = commitInput;
+  form._getTags = () => tags;
+  tagInput.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); commitInput(); }
+    else if (ev.key === 'Backspace' && !tagInput.value && tags.length) { tags.pop(); renderTags(); }
+  });
+  tagInput.addEventListener('input', () => {
+    if (tagInput.value.includes(',')) {
+      const parts = tagInput.value.split(',');
+      tagInput.value = parts.pop();
+      addTags(parts);
+    } else renderTags();
+  });
+  // Commit typed text when leaving the field — but not when the user is tapping a suggestion chip.
+  $('#tagSuggest', form).addEventListener('mousedown', ev => ev.preventDefault());
+  tagInput.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== tagInput) commitInput(); }, 200));
+  renderTags();
+
   form.addEventListener('change', ev => {
     if (ev.target.name === 'type') { syncType(); syncFreq(); }
     if (ev.target.name === 'frequency') syncFreq();
   });
   form.addEventListener('click', ev => {
-    if (ev.target.closest('[data-close]')) closeSheet();
+    const rm = ev.target.closest('[data-remove-tag]');
+    const add = ev.target.closest('[data-add-tag]');
+    if (rm) { tags = tags.filter(t => t !== rm.dataset.removeTag); renderTags(); }
+    else if (add) { tagInput.value = ''; addTags([add.dataset.addTag]); }
+    else if (ev.target.closest('[data-close]')) closeSheet();
     else if (ev.target.closest('[data-add-price]')) {
       $('#prices', form).insertAdjacentHTML('beforeend', priceRow({ from: C.todayISO(), amount: '' }, false));
       $('#prices .price-row:last-child input[name=pamount]', form).focus();
@@ -512,6 +617,7 @@ async function saveForm(form, existing) {
     endsAtExpiry: !once && !!f.endsAtExpiry,
     endDate: once ? null : f.endDate || null,
     notes: (f.notes || '').trim(),
+    tags: (form._commitTags(), form._getTags()),
     prices: prices.sort((a, b) => a.from.localeCompare(b.from)),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
@@ -559,7 +665,9 @@ async function importBackup(file) {
   try {
     const data = JSON.parse(await file.text());
     if (data.app !== 'budget-pwa' || !Array.isArray(data.entries)) throw new Error('This doesn’t look like a Budget backup file.');
-    const valid = data.entries.filter(e => e && e.id && e.name && e.startDate && Array.isArray(e.prices) && e.prices.length && C.FREQ[e.frequency]);
+    const valid = data.entries
+      .filter(e => e && e.id && e.name && e.startDate && Array.isArray(e.prices) && e.prices.length && C.FREQ[e.frequency])
+      .map(e => ({ ...e, tags: normalizeTags(e.tags) }));
     if (!confirm(`Import ${valid.length} entries? Entries already on this device with the same ID will be replaced.`)) return;
     await db.putEntries(valid);
     if (data.settings?.currency && !state.entries.length) { state.settings.currency = data.settings.currency; await saveSettings(); }
@@ -602,7 +710,16 @@ function sampleEntries() {
          prices: [{ from: m(-26, 2), amount: 70 }, { from: m(-11, 2), amount: 82 }] }),
     mk({ type: 'expense', name: 'Savings', category: 'Savings', method: 'Standing order', frequency: 'monthly', startDate: m(-6, 1),
          prices: [{ from: m(-6, 1), amount: 200 }] }),
-  ].map(e => { e.prices[0].from = e.startDate; return e; });
+  ].map(e => {
+    e.prices[0].from = e.startDate;
+    e.tags = {
+      'Salary': ['work'], 'Freelance design job': ['work', 'taxable'], 'Rent': ['shared', 'essential'],
+      'Electricity & gas': ['shared', 'essential'], 'Broadband': ['shared'], 'Phone contract': ['essential'],
+      'Netflix': ['shared', 'streaming'], 'Spotify': ['streaming'], 'Car insurance': ['essential', 'car'],
+      'Groceries': ['shared', 'essential'],
+    }[e.name] || [];
+    return e;
+  });
 }
 
 // ---------- Global events ----------
@@ -612,6 +729,15 @@ const actions = {
   edit: t => openSheet(state.entries.find(e => e.id === t.dataset.id)),
   range: t => { state.range = t.dataset.range === 'all' ? 'all' : Number(t.dataset.range); state.sel = null; render(); },
   filter: t => { state.filter = t.dataset.filter; render(); },
+  tag: t => {
+    const tag = t.dataset.tag;
+    const on = state.tags.some(x => x.toLowerCase() === tag.toLowerCase());
+    state.tags = on ? state.tags.filter(x => x.toLowerCase() !== tag.toLowerCase()) : [...state.tags, tag];
+    state.sel = null;
+    render();
+  },
+  'tags-clear': () => { state.tags = []; state.sel = null; render(); },
+  breakdown: t => { state.breakdown = t.dataset.by; render(); },
   'go-settings': () => { state.tab = 'settings'; render(); },
   export: exportBackup,
   import: () => $('#importFile').click(),

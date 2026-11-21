@@ -15,6 +15,10 @@ No backend, no account. All data lives on the device in IndexedDB.
 - **Overview**: this month's income, spending and what's left over. Also a chart over 6M, 1Y, 2Y or
   All with a 3-month forecast (tap or drag to read any month), payments due in the next 14 days, and
   spending by category.
+- **Tags**: free-form tags on any entry (e.g. `work`, `shared`, `tax-deductible`). Tap tag chips to
+  filter. Picking several shows entries with *all* of them. The filter applies to the Overview totals,
+  chart, contracts and upcoming payments as well as the Entries list. The "Where it goes" breakdown
+  can group by tag, and search matches `#tag`.
 - **Backup**: export to the iOS share sheet, then "Save to Files" → iCloud Drive. Import merges a
   backup file back in.
 - Works offline, supports dark mode, and respects the iPhone notch and home-indicator areas.
