@@ -16,7 +16,7 @@ test('every tab renders at phone width with no sideways scrolling', async ({ pag
   await openWithSample(page);
   for (const t of ['overview', 'entries', 'settings']) {
     await tab(page, t);
-    await expect(page.locator('#title')).toHaveText({ overview: 'Overview', entries: 'Entries', settings: 'Settings' }[t]);
+    await expect(page.locator('#title')).toHaveText({ overview: 'Overview', entries: 'Groups', settings: 'Settings' }[t]);
     await expectNoHorizontalScroll(page);
   }
 });
@@ -39,7 +39,7 @@ test('chart: tapping a month updates the readout', async ({ page }) => {
 test('tag filter narrows the Overview and can be cleared', async ({ page }) => {
   await openWithSample(page);
   await page.locator('.tagbar .chip[data-tag=shared]').first().click();
-  await expect(page.getByText('Showing only entries tagged #shared')).toBeVisible();
+  await expect(page.getByText('Showing only groups tagged #shared')).toBeVisible();
   await expect(page.locator('.summary .net .k')).toHaveText('Net for these tags');
   await page.locator('[data-action=tags-clear]').first().click();
   await expect(page.locator('.summary .net .k')).toHaveText('Left over');
@@ -104,5 +104,5 @@ test('sheets open with focus on the title, not a button (no stray focus box)', a
   await page.locator('#budgets [data-close]').click();
   await tab(page, 'entries');
   await page.locator('.row[data-action=edit]').first().click();
-  await expect.poll(focused).toBe('H2:Edit entry');
+  await expect.poll(focused).toBe('H2:Edit group');
 });

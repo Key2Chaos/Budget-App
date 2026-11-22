@@ -1,0 +1,60 @@
+{
+  "app": "budget-pwa",
+  "version": 4,
+  "exportedAt": "2026-11-22T21:00:00.000Z",
+  "settings": {
+    "currency": "AUD",
+    "lastBackup": "2026-11-22T21:00:00.000Z",
+    "payeeRules": {
+      "SUPERLOOP": "f4000000-0000-4000-8000-000000000001",
+      "SUPERLOOP LIMITED": "f4000000-0000-4000-8000-000000000001",
+      "CAFE EXAMPLE": "ignore",
+      "PAYMENT RECEIVED THANK": "transfer"
+    },
+    "payeeNames": { "SUPERLOOP": "Home internet", "BAKERY EXAMPLE": "Corner bakery" },
+    "ignoredTxns": [{ "id": "tign1", "date": "2026-10-04" }],
+    "transfers": [{ "id": "ttr1", "account": "commbank credit card", "date": "2026-10-20", "amount": 250 }],
+    "bankAccounts": ["CommBank account", "CommBank credit card"],
+    "accountNames": { "commbank credit card": "Everyday card" }
+  },
+  "entries": [
+    {
+      "id": "f4000000-0000-4000-8000-000000000001",
+      "type": "expense",
+      "name": "Home internet",
+      "category": "Phone & Internet",
+      "method": "Direct debit",
+      "frequency": "monthly",
+      "startDate": "2026-01-09",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "", "tags": [],
+      "prices": [{ "from": "2026-01-09", "amount": 89, "frequency": "monthly" }],
+      "variable": false, "manual": false, "share": 100, "noticeDays": null,
+      "payments": [
+        { "id": "h1", "date": "2026-08-09", "amount": 89, "due": "2026-08-09", "note": "" },
+        { "id": "i1", "date": "2026-09-09", "amount": 89, "due": "2026-09-09", "note": "Home internet · Direct Debit 123456 SUPERLOOP", "source": "tsl1", "payee": "SUPERLOOP", "account": "CommBank account", "batch": "b1" },
+        { "id": "i2", "date": "2026-10-09", "amount": 89, "due": "2026-10-09", "note": "SUPERLOOP LIMITED        BRISBANE    AUS", "source": "tsl2", "payee": "SUPERLOOP LIMITED", "account": "CommBank credit card", "batch": "b1" }
+      ],
+      "createdAt": "2026-11-22T20:00:00.000Z", "updatedAt": "2026-11-22T20:00:00.000Z"
+    },
+    {
+      "id": "f4000000-0000-4000-8000-000000000002",
+      "type": "expense",
+      "name": "Everyday spending – Everyday card",
+      "category": "",
+      "method": "Everyday card",
+      "frequency": "irregular",
+      "startDate": "2026-10-01",
+      "contractEnd": null, "endsAtExpiry": false, "endDate": null,
+      "notes": "Everything from bank imports that isn’t matched to another entry.", "tags": [],
+      "fromImport": true, "importBatch": "b1", "catchAll": "commbank credit card|expense",
+      "prices": [{ "from": "2026-10-01", "amount": null, "frequency": "irregular" }],
+      "variable": true, "manual": false, "share": 100, "noticeDays": null,
+      "payments": [
+        { "id": "i3", "date": "2026-10-02", "amount": 6.5, "due": null, "note": "Corner bakery · BAKERY EXAMPLE        SYDNEY      AUS", "source": "tbk1", "payee": "BAKERY EXAMPLE", "account": "CommBank credit card", "batch": "b1" },
+        { "id": "i4", "date": "2026-10-15", "amount": 42.1, "due": null, "note": "GROCER EXAMPLE 1143 SYDNEY", "source": "tgr1", "batch": "b1" }
+      ],
+      "createdAt": "2026-11-22T20:00:00.000Z", "updatedAt": "2026-11-22T20:00:00.000Z"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 // Reports built on top of the core maths: biggest changes, yearly totals, budgets,
 // "until payday" and spreadsheet (CSV) export. Pure functions — no DOM — so they're testable.
 import * as C from './calc.js';
+import * as M from './model.js';
 
 /** Monthly cost on a date (your share), or 0 if the entry isn't running then. One-offs are 0. */
 export function monthlyAt(e, dateISO) {
@@ -36,10 +37,11 @@ export function annualTotals(entries, dateISO) {
 
 // ---------- Budgets ----------
 
-/** Does an expense count towards a budget? (category or tag, ignoring capitals) */
+/** Does an expense count towards a budget? (a group, a category or a tag, ignoring capitals) */
 export function inBudget(e, budget) {
   if (e.type !== 'expense') return false;
   const label = budget.label.toLowerCase();
+  if (budget.kind === 'group') return budget.groupId ? e.id === budget.groupId : e.name.toLowerCase() === label;
   return budget.kind === 'tag'
     ? (e.tags || []).some(t => t.toLowerCase() === label)
     : (e.category || '').toLowerCase() === label;
@@ -136,14 +138,29 @@ export function entriesRows(entries, today = C.todayISO()) {
   return [head, ...rows];
 }
 
-export function paymentsRows(entries) {
-  const head = ['Date', 'Name', 'Type', 'Category', 'Amount (full bill)', 'Your share', 'For payment due', 'Note'];
+export function paymentsRows(entries, settings = {}) {
+  const head = ['Date', 'Name', 'Type', 'Category', 'Amount (full bill)', 'Your share', 'For payment due', 'Note',
+    'Payee', 'Account', 'Payment method'];
   const rows = [];
   for (const e of entries) for (const p of e.payments || []) {
     rows.push([p.date, e.name, e.type === 'income' ? 'Income' : 'Expense', e.category, p.amount,
-      p.amount * C.shareOf(e), p.due, p.note]);
+      p.amount * C.shareOf(e), p.due, p.note, p.payee ? M.keyTitle(settings, p.payee) : '',
+      p.account ? M.accountName(settings, p.account) : '', p.method || (p.source ? '' : e.method)]);
   }
   rows.sort((a, b) => a[0].localeCompare(b[0]));
+  return [head, ...rows];
+}
+
+/** Payees: name, group (or rule), the bank's spellings, and their payments. */
+export function payeesRows(entries, settings = {}) {
+  const head = ['Payee', 'Group', 'Bank spellings', 'Payments', 'Total'];
+  const byId = new Map(entries.map(e => [e.id, e]));
+  const rows = M.payeesOf(settings).map(p => {
+    const keys = new Set(p.keys);
+    const pays = entries.flatMap(e => (e.payments || []).filter(x => keys.has(x.payee)).map(x => (e.type === 'expense' ? x.amount : -x.amount)));
+    const group = p.rule === 'ignore' ? 'Always ignored' : p.rule === 'transfer' ? 'Transfer' : byId.get(p.groupId)?.name || 'Ungrouped';
+    return [M.payeeTitle(p), group, p.keys.join(' | '), pays.length, pays.reduce((n, a) => n + a, 0)];
+  }).sort((a, b) => a[0].localeCompare(b[0]));
   return [head, ...rows];
 }
 

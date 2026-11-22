@@ -17,7 +17,7 @@ export function renderOverview() {
         </div>
         <h2>Track what comes in and goes out</h2>
         <p>Add your bills, subscriptions, contracts and income. You'll see your monthly budget and how it changes over time.</p>
-        <button class="btn primary" data-action="add">Add your first entry</button>
+        <button class="btn primary" data-action="add">Add your first group</button>
         <button class="btn" data-action="sample">Try it with sample data</button>
       </div>`;
     return;
@@ -31,7 +31,7 @@ export function renderOverview() {
       <strong>Back up your data</strong><span>Your budget lives only on this device. Save a copy to iCloud Drive.</span></button>` : '';
 
   if (!entries.length) {
-    view.innerHTML = `${backupBanner}${tagBar()}<p class="empty-small">No entries have all of these tags.</p>`;
+    view.innerHTML = `${backupBanner}${tagBar()}<p class="empty-small">No groups have all of these tags.</p>`;
     return;
   }
   const cur = C.monthTotals(entries, now.getFullYear(), now.getMonth());
@@ -111,20 +111,25 @@ export function renderOverview() {
     .filter(x => x.days <= 60 && (x.endDays >= 0 || (!x.e.endsAtExpiry && x.endDays >= -60)))
     .sort((a, b) => a.days - b.days);
 
-  // Breakdown of this month's expenses, by category or by tag
+  // Breakdown of this month's expenses, by category, tag or group
   const byTag = state.breakdown === 'tag';
+  const byGroup = state.breakdown === 'group';
   const cats = {};
   for (const e of entries) {
     if (e.type !== 'expense') continue;
     // month: what this calendar month costs (incl. one-offs); year: 12 × today's monthly rate
     const v = yearly ? 12 * R.monthlyAt(e, today) : C.monthAmount(e, now.getFullYear(), now.getMonth());
     if (v <= 0) continue;
-    const keys = byTag ? (e.tags?.length ? e.tags.map(t => '#' + t) : ['Untagged']) : [e.category || 'Other'];
+    const keys = byTag ? (e.tags?.length ? e.tags.map(t => '#' + t) : ['Untagged']) : byGroup ? [e.name] : [e.category || 'Other'];
     for (const k of keys) cats[k] = (cats[k] || 0) + v;
   }
-  const catList = Object.entries(cats).sort((a, b) => b[1] - a[1]);
+  const allCats = Object.entries(cats).sort((a, b) => b[1] - a[1]);
+  // By group there can be dozens: the biggest 12, and the rest together
+  const catList = byGroup && allCats.length > 13
+    ? [...allCats.slice(0, 12), [`${allCats.length - 12} other groups`, allCats.slice(12).reduce((n, x) => n + x[1], 0)]]
+    : allCats;
   const catMax = catList.length ? catList[0][1] : 1;
-  const filterNote = state.tags.length ? `<p class="fine">Showing only entries tagged ${state.tags.map(t => '#' + esc(t)).join(' + ')}.</p>` : '';
+  const filterNote = state.tags.length ? `<p class="fine">Showing only groups tagged ${state.tags.map(t => '#' + esc(t)).join(' + ')}.</p>` : '';
 
   view.innerHTML = `
     ${backupBanner}
@@ -170,7 +175,7 @@ export function renderOverview() {
       <p class="fine">This month</p>
       <div class="cats">${budgets.map(s => `
         <div class="cat">
-          <div class="cat-top"><span>${s.budget.kind === 'tag' ? '#' : ''}${esc(s.budget.label)}</span>
+          <div class="cat-top"><span>${s.budget.kind === 'tag' ? '#' : ''}${esc(s.budget.kind === 'group' ? state.entries.find(e => e.id === s.budget.groupId)?.name || s.budget.label : s.budget.label)}</span>
             <span>${money(s.spent)} <span class="muted">of ${money(s.budget.amount)}</span></span></div>
           <div class="bar ${s.over ? 'over' : s.near ? 'near' : ''}"><span style="width:${Math.min(100, s.pct * 100).toFixed(1)}%"></span></div>
           <div class="cat-note ${s.over ? 'neg' : ''}">${s.over ? `Over by ${money(-s.left)}` : `${money(s.left)} left`}</div>
@@ -270,10 +275,11 @@ export function renderOverview() {
     ${catList.length ? `<section class="card">
       <div class="card-head"><h3>Where it goes</h3>
         <div class="seg small">
-          <button data-action="breakdown" data-by="category" class="${byTag ? '' : 'on'}">Category</button>
+          <button data-action="breakdown" data-by="category" class="${byTag || byGroup ? '' : 'on'}">Category</button>
+          <button data-action="breakdown" data-by="group" class="${byGroup ? 'on' : ''}">Group</button>
           <button data-action="breakdown" data-by="tag" class="${byTag ? 'on' : ''}">Tag</button>
         </div></div>
-      <p class="fine">${yearly ? 'Per year at today’s rates' : 'This month'}${byTag ? ' · an entry with several tags counts towards each' : ''}</p>
+      <p class="fine">${yearly ? 'Per year at today’s rates' : 'This month'}${byTag ? ' · a group with several tags counts towards each' : ''}</p>
       <div class="cats">${catList.map(([name, v]) => `
         <div class="cat">
           <div class="cat-top"><span>${esc(name)}</span><span>${money(v)} <span class="muted">${Math.round((v / (yearly ? yr.expense : cur.expense)) * 100)}%</span></span></div>

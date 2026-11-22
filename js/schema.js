@@ -7,9 +7,11 @@
 //     upgrades version N-1 → N. Then add a backup in the old format to tests/fixtures/.
 //  3. Adding an optional field is NOT a format change: just give it a default in normalizeEntry().
 import { FREQ } from './calc.js';
+import { payeeKey, guessMethod, guessAccountKind } from './bank.js';
+import { normalizeAccounts, normalizePayees } from './model.js';
 
 export const APP_ID = 'budget-pwa';
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** MIGRATIONS[n] upgrades a backup object from version n to n + 1. */
 const MIGRATIONS = {
@@ -29,7 +31,59 @@ const MIGRATIONS = {
   // v3 → v4 (Nov 2026): new frequency 'irregular' (no set schedule). Nothing to convert — the bump
   // stops older app versions, which don't know it and would drop such entries, from importing v4.
   3: data => ({ ...data, version: 4 }),
+  // v4 → v5 (Nov 2026): your accounts and payees become records of their own (docs/DESIGN.md).
+  // bankAccounts + accountNames → accounts; payeeRules + payeeNames → payees (each payee key one
+  // payee, with its group or ignore/transfer rule and your name). Imported payments get a payment
+  // method guessed from the bank's text, and entries an import added stop using the account's name
+  // as their payment method.
+  4: data => {
+    const s = data.settings && typeof data.settings === 'object' ? { ...data.settings } : {};
+    const old = legacyImportSettings(s);
+    const accounts = old.bankAccounts.map(key => ({ key, name: old.accountNames[key.toLowerCase()] || key, kind: guessAccountKind(key) }));
+    const kindOf = acc => accounts.find(a => a.key.toLowerCase() === String(acc ?? '').toLowerCase())?.kind || '';
+    const accountNames = new Set(accounts.flatMap(a => [a.key.toLowerCase(), a.name.toLowerCase()]));
+    const entries = data.entries.map(e => {
+      if (!e || typeof e !== 'object' || !Array.isArray(e.payments)) return e;
+      const payments = e.payments.map(p => (p && typeof p === 'object' && p.source && typeof p.method !== 'string'
+        ? { ...p, method: guessMethod(String(p.note ?? '').split(' · ').at(-1), kindOf(p.account)) } : p));
+      let method = e.method;
+      if ((e.fromImport || e.catchAll) && typeof method === 'string' && accountNames.has(method.trim().toLowerCase())) {
+        const counts = new Map();
+        for (const p of payments) if (p?.method) counts.set(p.method, (counts.get(p.method) || 0) + 1);
+        method = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+      }
+      return { ...e, method, payments };
+    });
+    // One payee per payee key: remembered ones, named ones, then any seen on imported payments
+    const keys = [...Object.keys(old.payeeRules), ...Object.keys(old.payeeNames)];
+    for (const e of entries) for (const p of e?.payments || []) {
+      if (p?.source) keys.push(p.payee || payeeKey(String(p.note ?? '').split(' · ').at(-1)));
+    }
+    const payees = [...new Set(keys.filter(Boolean))].map(k => {
+      const v = old.payeeRules[k];
+      const rule = v === 'ignore' || v === 'transfer' ? v : null;
+      return { id: `pk:${k}`, name: old.payeeNames[k] || null, keys: [k], groupId: !rule && v ? v : null, rule };
+    });
+    for (const k of ['payeeRules', 'payeeNames', 'bankAccounts', 'accountNames']) delete s[k];
+    return { ...data, version: 5, entries, settings: { ...s, accounts, payees } };
+  },
 };
+
+/** The import settings of formats before v5, tidied (as they were then), for the v4 → v5 step. */
+function legacyImportSettings(raw) {
+  const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const payeeRules = Object.fromEntries(Object.entries(obj(raw.payeeRules))
+    .filter(([k, v]) => typeof k === 'string' && k && typeof v === 'string' && v));
+  const payeeNames = Object.fromEntries(Object.entries(obj(raw.payeeNames))
+    .map(([k, v]) => [k, typeof v === 'string' ? cleanLabel(v) : '']).filter(([k, v]) => k && v));
+  const bankAccounts = [...new Set((Array.isArray(raw.bankAccounts) ? raw.bankAccounts : [])
+    .filter(x => typeof x === 'string').map(cleanLabel).filter(Boolean))];
+  const accountNames = Object.fromEntries(Object.entries(obj(raw.accountNames))
+    .map(([k, v]) => [String(k).toLowerCase(), cleanLabel(v)]).filter(([k, v]) => k && v));
+  // An account renamed but missing from the list (shouldn't happen) still gets a record
+  for (const k of Object.keys(accountNames)) if (!bankAccounts.some(b => b.toLowerCase() === k)) bankAccounts.push(k);
+  return { payeeRules, payeeNames, bankAccounts, accountNames };
+}
 
 const str = v => (typeof v === 'string' ? v : '');
 const isDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -118,7 +172,8 @@ function normalizeShare(v) {
 }
 
 /** Logged payments: { id, date, amount (negative = refund/credit), due (which payment it settles), note,
- *  source (bank transaction id, if imported), payee and account (imported: which payee and bank account), handLogged (logged by hand, then matched by an import) }. */
+ *  source (bank transaction id, if imported), payee and account (imported: which payee key and account key),
+ *  method (how it was paid; v5, optional — hand-logged ones use their entry's method), handLogged (logged by hand, then matched by an import) }. */
 function normalizePayments(list) {
   if (!Array.isArray(list)) return [];
   return list
@@ -135,17 +190,17 @@ function normalizePayments(list) {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** Monthly spending limits: { id, kind: 'category' | 'tag', label, amount }. (Added Nov 2026, optional.) */
+/** Monthly spending limits: { id, kind: 'category' | 'tag' | 'group', label, amount, groupId (groups) }. (Added Nov 2026, optional.) */
 export function normalizeBudgets(list) {
   if (!Array.isArray(list)) return [];
   const seen = new Set();
   const out = [];
   list.forEach((b, i) => {
     if (!b || typeof b !== 'object') return;
-    const kind = b.kind === 'tag' ? 'tag' : 'category';
+    const kind = b.kind === 'tag' || b.kind === 'group' ? b.kind : 'category';
     const label = kind === 'tag' ? cleanTag(b.label) : cleanLabel(b.label);
     const amount = typeof b.amount === 'string' ? parseFloat(b.amount) : Number(b.amount);
-    const key = `${kind}:${label.toLowerCase()}`;
+    const key = kind === 'group' && typeof b.groupId === 'string' && b.groupId ? `group:${b.groupId}` : `${kind}:${label.toLowerCase()}`;
     if (!label || !(amount > 0) || seen.has(key)) return;
     seen.add(key);
     out.push({ ...b, id: str(b.id) || `b${i}-${key}`, kind, label, amount: Math.round(amount * 100) / 100 });
@@ -159,13 +214,6 @@ function normalizeSettings(raw) {
   if (raw && str(raw.lastBackup)) out.lastBackup = raw.lastBackup;
   const budgets = normalizeBudgets(raw?.budgets);
   if (budgets.length) out.budgets = budgets;
-  // Bank import memory (added Nov 2026, optional): which payee goes to which entry, ignored
-  // transactions, and account names used for imports.
-  if (raw?.payeeRules && typeof raw.payeeRules === 'object') {
-    const rules = Object.fromEntries(Object.entries(raw.payeeRules)
-      .filter(([k, v]) => typeof k === 'string' && k && typeof v === 'string' && v));
-    if (Object.keys(rules).length) out.payeeRules = rules;
-  }
   // Each one is an id (older data) or { id, date } (since Nov 2026: so the oldest can be dropped first).
   if (Array.isArray(raw?.ignoredTxns)) {
     const seen = new Set();
@@ -184,23 +232,11 @@ function normalizeSettings(raw) {
       .map(x => ({ id: x.id, account: x.account.toLowerCase(), date: x.date, amount: x.amount })).slice(-20000);
     if (list.length) out.transfers = list;
   }
-  if (Array.isArray(raw?.bankAccounts)) {
-    const names = [...new Set(raw.bankAccounts.map(cleanLabel).filter(Boolean))];
-    if (names.length) out.bankAccounts = names;
-  }
-  // The user's own names for payees (added Nov 2026, optional): payee key → name.
-  if (raw?.payeeNames && typeof raw.payeeNames === 'object') {
-    const names = Object.fromEntries(Object.entries(raw.payeeNames)
-      .map(([k, v]) => [k, typeof v === 'string' ? cleanLabel(v) : '']).filter(([k, v]) => k && v));
-    if (Object.keys(names).length) out.payeeNames = names;
-  }
-  // Display names for import accounts (added Nov 2026, optional). Keys are the original account
-  // name in lowercase, which stays in transaction ids, so renaming never breaks duplicate detection.
-  if (raw?.accountNames && typeof raw.accountNames === 'object') {
-    const names = Object.fromEntries(Object.entries(raw.accountNames)
-      .map(([k, v]) => [String(k).toLowerCase(), cleanLabel(v)]).filter(([k, v]) => k && v));
-    if (Object.keys(names).length) out.accountNames = names;
-  }
+  // Your accounts and payees (format v5, see js/model.js)
+  const accounts = normalizeAccounts(raw?.accounts);
+  if (accounts.length) out.accounts = accounts;
+  const payees = normalizePayees(raw?.payees);
+  if (payees.length) out.payees = payees;
   return out;
 }
 

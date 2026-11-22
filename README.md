@@ -5,6 +5,28 @@ No backend, no account. All data lives on the device in IndexedDB.
 
 ## Features
 
+- **Groups** (called *entries* before Nov 2026): each bill, subscription, income or kind of spending
+  is a group. A group collects the payments to one company, even when your statements show it in
+  different ways or from different accounts. For example, "TELSTRA BPAY 1234", "Telstra Direct
+  Debit" and a Telstra card payment all go to *Telstra*. A group can also pool several companies,
+  e.g. *Coffee* for three cafés. See [docs/DESIGN.md](docs/DESIGN.md).
+  - **Choosing a group** works the same way everywhere: start typing, pick a suggestion or any
+    group, or tap **+ Create “…”** to make a new one. If what you type matches an existing group's
+    name, that group is picked instead of a duplicate being made.
+  - Each group's **Summary** shows how it was paid, e.g. "Paid by BPAY $240 · Card $55", and from
+    which accounts.
+  - **Move…** on a payment moves just that payment to another group.
+  - **Deleting a group** moves its imported payments to *Ungrouped spending* (or income). Nothing
+    imported is lost, and its payees can be put in another group.
+- **Payees** (Settings → Payees): who you pay and who pays you, from bank imports. Each payee is in
+  one group, so totals always add up.
+  - Rename a payee, or choose its group. Its payments move there, and future imports follow.
+  - Set a payee to *Always ignore* or *Transfer*.
+  - **Merge** two bank spellings of the same payee.
+  - Filter by *Ungrouped* to see what still needs a home.
+- **Accounts** (Settings → Accounts): your bank accounts and cards, with their type, the balance
+  from the latest statement, money in and out this month, and their transactions. Renaming one is
+  safe.
 - **Income and expenses**, each with a name, amount, frequency (one-off, weekly, fortnightly,
   4-weekly, monthly, quarterly, 6-monthly, yearly or **variable**), first payment date, category and
   payment method.
@@ -122,9 +144,13 @@ No backend, no account. All data lives on the device in IndexedDB.
     set schedule, named after them, which their later transactions go to as well. The account's
     catch-all (*Everyday spending – <account>* / *Other income – <account>*) is still in the dropdown
     if you want one. Change any row before importing, or choose *Skip for now* / *Ignore*.
-  - **Sorting it out later:** open an entry with imported payments from several payees (like a
-    catch-all), go to its **Accounts** page and use **Payees → Move to…** to move all of one payee's
-    payments to another entry, or into a new entry of its own. Future imports send that payee there too.
+  - **Sorting it out later:** in **Settings → Payees**, choose a payee's group. Or open a group with
+    payments from several payees (like a catch-all), go to its **Accounts** page and tap **Move to…**
+    next to a payee. Either way, all that payee's payments move, and future imports send them there.
+  - **The same company, another way:** a new payee very like one already in a group (another
+    suburb, BPAY instead of card, another account) is suggested for that group, marked "like …".
+  - **Choose a group or type a name…** on any row opens the group picker. A typed name becomes a
+    new group when you import.
   - **Entry pages:** an existing entry opens on **Summary** (a month, last 12 months, payments,
     next due, plus its settings), with **Transactions** (the payment log) and **Accounts** (totals per
     bank account, and the payees it's made of) as separate pages. Save keeps changes from all three.
@@ -153,12 +179,14 @@ No backend, no account. All data lives on the device in IndexedDB.
 
 ## Labelling guide
 
-Each of the three labels has one job:
+Each label has one job:
 
 | Label | Answers | How many | Style | Examples |
 | --- | --- | --- | --- | --- |
-| **Category** | *What is it?* | Exactly one, so the percentages add up to 100% | Title Case, broad (about 10–15 in total) | Housing, Subscriptions, Phone & Internet |
-| **Payment method** | *How does the money move?* | One | Sentence case. Add the card or account if useful | Direct debit, Credit card – Amex |
+| **Group** | *Which company or thing is it really?* | One per payee | Its own name | Telstra, Netflix, Coffee |
+| **Category** | *What kind of spending is it?* | Exactly one per group, so the percentages add up to 100% | Title Case, broad (about 10–15 in total) | Housing, Subscriptions, Phone & Internet |
+| **Payment method** | *How does the money move?* | One per payment (imports guess it; the group's is the default) | Sentence case | BPAY, Direct debit, Card |
+| **Account** | *Which of my accounts?* | One per imported payment | Your name for it | Everyday card, Savings |
 | **Tags** | *Anything that cuts across categories* | Any number | lowercase, hyphenated | `shared`, `essential`, `tax-deductible`, `cancel-soon` |
 
 Quick test: if every entry needs exactly one answer, it's a category. If it's a yes or no, it's a tag.
@@ -294,6 +322,9 @@ ask for the history to be rewritten if you also want it gone from old commits.
 | `js/sheet-entry.js` | The entry sheet (Summary, Transactions, Accounts), save and delete |
 | `js/sheet-budgets.js`, `js/sheet-labels.js` | The Budgets and Manage labels sheets |
 | `js/importer.js` | Bank import screens: review, apply, undo (the pure logic is in `bank.js`) |
+| `js/model.js` | Your accounts and payees (format v5): pure functions, tested in `npm test` |
+| `js/picker.js` | The picker: choose a group (or payee), or type a name to create one |
+| `js/sheet-accounts.js`, `js/sheet-payees.js` | Settings → Accounts and Settings → Payees |
 | `js/backup.js` | Backup export / import, spreadsheet export, sample data |
 | `js/bank.js` | Pure bank-statement logic: CSV, formats, payee keys, matching, transfers |
 | `js/calc.js` | Pure date/money logic (frequencies, price history, monthly totals) |
