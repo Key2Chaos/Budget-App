@@ -212,6 +212,10 @@ importer and the group (entry) sheet.
   the group's default updates them.
 - **One payment in another group** is done by *moving* that payment (**Move…** on its row), not with
   a `groupOverride` field. The payee's group doesn't change.
+- **Merging groups** (added after the first review): *Merge into another group…* on a group's
+  Summary page moves all its payments, payees and budget into another group and removes it. A
+  group's Accounts page lists its payees even when there's only one, so a single payee can be moved
+  on too.
 - **Group budgets** store the group's id as well as its name, so renaming the group keeps the budget.
 
 **Not built yet** (also in BACKLOG):

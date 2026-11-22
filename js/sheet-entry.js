@@ -45,7 +45,7 @@ export function payeesSection(entry) {
     g.n++; g.total += p.amount; g.last = p.date > g.last ? p.date : g.last;
     by.set(k, g);
   }
-  if (by.size < (isCatchAll(entry) ? 1 : 2)) return ''; // a catch-all lists even its last payee
+  if (!by.size) return ''; // even a group's only payee can be moved on
   const groups = [...by.values()].sort((a, b) => b.total - a.total);
   return `<div class="group-title">Payees (${groups.length})</div>
     <section class="card form">${groups.map(g => `
@@ -356,7 +356,8 @@ export function openSheet(entry = null, tab = 'summary') {
           <textarea name="notes" rows="3" placeholder="Account number, renewal terms…">${esc(e.notes)}</textarea></label>
       </section>
 
-      ${isNew ? '' : '<button type="button" class="btn danger-btn" data-delete>Delete group</button>'}
+      ${isNew ? '' : `<button type="button" class="btn" data-merge-group>Merge into another group…</button>
+        <button type="button" class="btn danger-btn" data-delete>Delete group</button>`}
       </div>
 
       ${isNew ? '' : `<div class="tab-panel ${tab === 'transactions' ? 'on' : ''}" data-panel="transactions" role="tabpanel">
@@ -482,6 +483,7 @@ export function openSheet(entry = null, tab = 'summary') {
       syncPaySign(row);
     }
     else if (ev.target.closest('[data-delete]')) deleteEntry(entry);
+    else if (ev.target.closest('[data-merge-group]')) mergeGroup(entry);
   });
   form.addEventListener('input', ev => { if (ev.target.name === 'payamount') syncPaySign(ev.target.closest('.pay-row')); });
   form.addEventListener('submit', ev => { ev.preventDefault(); saveForm(form, entry); });
@@ -587,6 +589,37 @@ export async function saveForm(form, existing) {
   }
   await reload();
   toast(existing ? 'Saved' : 'Added');
+}
+
+/**
+ * Merge a group into another: all its payments move there (into a group of the other type, their
+ * sign flips: money out becomes a refund on income), its payees and budget follow, and this group
+ * goes. For when the same company ended up in two groups, e.g. "Sq Woolworths" and "Woolworths".
+ */
+export async function mergeGroup(entry) {
+  const choice = await pickGroup({ title: `Merge ${entry.name} into`, type: entry.type, exclude: [entry.id], create: false,
+    suggested: groupSuggestions(entry.name, entry.type, [entry.id]) });
+  const dest = choice?.id && state.entries.find(e => e.id === choice.id);
+  if (!dest) return;
+  const pays = entry.payments || [];
+  if (!confirm(`Merge “${entry.name}” into “${dest.name}”? ${pays.length ? `Its ${pays.length === 1 ? '1 payment moves' : `${pays.length} payments move`} there, and so do its payees. ` : ''}“${entry.name}” is then removed.`)) return;
+  const now = new Date().toISOString();
+  const moved = pays.map(p => ({ ...p, amount: dest.type === entry.type ? p.amount : -p.amount, due: Bank.nearestDue(dest, p.date) }));
+  const start = [dest.startDate, ...moved.map(p => p.date)].sort()[0];
+  // A group with no set schedule starts at its first payment; a scheduled one keeps its start date
+  const grow = C.isIrregular(dest) && start < dest.startDate ? { startDate: start, prices: [{ ...dest.prices[0], from: start }, ...dest.prices.slice(1)] } : {};
+  await db.putEntry(normalizeEntry({ ...dest, ...grow, payments: [...(dest.payments || []), ...moved], updatedAt: now }));
+  await db.deleteEntry(entry.id);
+  state.settings.payees = M.payeesOf(state.settings).map(p => (p.groupId === entry.id ? { ...p, groupId: dest.id } : p));
+  const budgets = state.settings.budgets || [];
+  const hasOwn = budgets.some(b => b.kind === 'group' && b.groupId === dest.id);
+  state.settings.budgets = budgets.flatMap(b => (b.kind === 'group' && b.groupId === entry.id
+    ? (hasOwn ? [] : [{ ...b, groupId: dest.id, label: dest.name }]) : [b]));
+  await saveSettings();
+  await reload();
+  const fresh = state.entries.find(e => e.id === dest.id);
+  if (fresh) openSheet(fresh, 'summary'); else closeSheet();
+  toast(`Merged into ${dest.name}${pays.length ? ` · ${pays.length} payment${pays.length === 1 ? '' : 's'} moved` : ''}`);
 }
 
 /**

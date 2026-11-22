@@ -191,3 +191,27 @@ test('data saved before format 5: accounts and payees are upgraded on start-up',
   expect(stored.accounts.map(a => a.name)).toEqual(['CommBank account', 'Everyday card']);
   expect(stored.payees.find(p => p.keys.includes('SUPERLOOP')).groupId).toBe('f4000000-0000-4000-8000-000000000001');
 });
+
+test('a group with one payee can be merged into another group', async ({ page }) => {
+  await openWithSample(page);
+  await importWithNewGroup(page);                                           // School things: one payee, Kmart Bondi
+  await editEntry(page, 'School things');
+  await sheetPage(page, 'accounts');
+  await expect(page.getByRole('button', { name: /^Move Kmart Bondi/ })).toBeVisible(); // even its only payee can move
+  await sheetPage(page, 'summary');
+  await page.getByRole('button', { name: 'Merge into another group…' }).click();
+  await expect(picker(page).locator('[data-create]')).toHaveCount(0);       // only existing groups
+  await picker(page).locator('.pick-search').fill('groc');
+  await picker(page).locator('[data-pick]', { hasText: 'Groceries' }).click();
+  expect(page.dialogs.at(-1)).toContain('Merge “School things” into “Groceries”? Its 1 payment moves there');
+  await expect(page.locator('#toast')).toContainText('Merged into Groceries · 1 payment moved');
+  await expect(page.locator('#sheet h2')).toHaveText('Edit group');
+  await expect(page.locator('#sheet [name=name]')).toHaveValue('Groceries');
+  await page.locator('#sheet .sheet-head [data-close]').click();
+
+  await tab(page, 'entries');
+  await expect(row(page, 'School things')).toHaveCount(0);
+  await tab(page, 'settings');
+  await page.locator('[data-action=open-payees]').click();
+  await expect(page.locator('#payees [data-payee]', { hasText: 'Kmart Bondi' })).toContainText('Groceries');
+});
