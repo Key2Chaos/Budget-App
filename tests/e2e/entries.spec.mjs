@@ -133,3 +133,34 @@ test('an entry has three pages: Summary, Transactions and Accounts', async ({ pa
   await sheetPage(page, 'transactions');
   await expect(page.locator('#payments .pay-row')).toHaveCount(n + 1);
 });
+
+test('logged payments: a typed minus makes a credit; income rows say received / paid back', async ({ page }) => {
+  await openWithSample(page);
+  await editEntry(page, 'Water');
+  await sheetPage(page, 'transactions');
+  const first = page.locator('#payments .pay-row').first();
+  await page.locator('[data-add-payment]').click();
+  await first.locator('[name=payamount]').fill('-20');
+  await expect(first).toHaveClass(/credit/);
+  await expect(first.locator('.pay-kind')).toBeVisible();
+  await first.locator('[data-flip-sign]').click();                          // and back again
+  await expect(first.locator('[name=payamount]')).toHaveValue('20');
+  await expect(first).not.toHaveClass(/credit/);
+  await expect(first.locator('.pay-kind')).toBeHidden();
+  await first.locator('[data-flip-sign]').click();
+  await page.screenshot({ path: test.info().outputPath('payments.png') });
+  await save(page);
+  await expect(page.locator('#sheet[open]')).toHaveCount(0);
+  await editEntry(page, 'Water');
+  await sheetPage(page, 'transactions');
+  await expect(page.locator('#payments .pay-row.credit [name=payamount]')).toHaveValue('-20.00');
+
+  // On income, the same row reads as money received, and a minus as money paid back
+  await sheetPage(page, 'summary');
+  await page.locator('#sheet .type-seg label', { hasText: 'Income' }).click();
+  await sheetPage(page, 'transactions');
+  const row = page.locator('#payments .pay-row.credit');
+  await expect(row.locator('[name=paydate]')).toHaveAttribute('aria-label', 'Received on');
+  await expect(row.locator('.pay-kind')).toHaveText('Paid back');
+  await expect(page.locator('#sheet .tab-panel.on')).toContainText('money you paid back');
+});

@@ -753,3 +753,18 @@ test('parsing typed amounts', () => {
   assert.equal(C.parseAmount('12,5'), 12.5);
   assert.ok(Number.isNaN(C.parseAmount('abc')));
 });
+
+test('similar payees: same shop in other towns share an entry; different services and processors stay apart', () => {
+  const same = [['Kmart', 'Kmart Bondi'], ['Kmart Bondi', 'Kmart Sydney'], ['Woolworth', 'Woolworths'], ['Coles', 'Coles Express']];
+  const apart = [['Uber Eats', 'Uber Trip'], ['Paypal Netflix', 'Paypal Spotify'], ['Netflix', 'Spotify'], ['Bp', 'Bupa'], ['Paypal', 'Paypal Netflix']];
+  for (const [a, b] of same) assert.ok(B.similarPayees(a, b), `${a} ~ ${b}`);
+  for (const [a, b] of apart) assert.ok(!B.similarPayees(a, b), `${a} ≁ ${b}`);
+  const c = B.clusterPayees([
+    { key: 'KMART BONDI', name: 'Kmart Bondi', count: 1 }, { key: 'KMART SYDNEY', name: 'Kmart Sydney', count: 3 },
+    { key: 'UBER EATS', name: 'Uber Eats', count: 2 }, { key: 'UBER TRIP', name: 'Uber Trip', count: 2 },
+  ]);
+  assert.equal(c.get('KMART BONDI'), 'KMART SYDNEY');            // led by the one with the most transactions
+  assert.equal(c.get('KMART SYDNEY'), 'KMART SYDNEY');
+  assert.notEqual(c.get('UBER EATS'), c.get('UBER TRIP'));
+  assert.equal(B.commonName(['Kmart Sydney', 'Kmart Bondi']), 'Kmart');
+});
