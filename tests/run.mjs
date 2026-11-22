@@ -405,6 +405,142 @@ test('files with a header row: Debit / Credit columns', () => {
   assert.deepEqual(B.toTransactions(rows, fmt, 'YMD').map(t => t.amount), [-4.5, 500]);
 });
 
+test('header row: "Value Date" is never the amount; preferred column names win', () => {
+  const rows = B.parseCSV(bankFile('value-date-debit-credit.csv'));
+  const fmt = B.detectFormat(rows);
+  assert.equal(fmt.date, 1, 'Transaction Date, not the earlier Value Date');
+  assert.equal(fmt.amount, -1, 'no Amount column: use Debit / Credit');
+  assert.equal(fmt.desc, 3, 'Description, not the earlier Details');
+  const txns = B.toTransactions(rows, fmt, 'DMY');
+  assert.deepEqual(txns.map(t => [t.date, t.amount, t.description]), [
+    ['2026-11-01', -17.99, 'NETFLIX.COM MELBOURNE'],
+    ['2026-11-04', 2500, 'SALARY ACME PTY LTD'],
+    ['2026-11-15', -115, 'ORIGIN ENERGY'],
+  ]);
+  assert.equal(txns[0].balance, 1482.01);
+  // "Debit Amount" / "Credit Amount" are debit and credit columns, not the amount
+  const w = B.detectFormat(B.parseCSV('Bank Account,Date,Narrative,Debit Amount,Credit Amount,Balance\n1,03/11/2026,COFFEE,4.50,,100\n'));
+  assert.deepEqual([w.amount, w.debit, w.credit, w.desc], [-1, 3, 4, 2]);
+});
+
+test('CR / DR amounts: DR is money out, CR money in, with or without a space', () => {
+  assert.equal(B.parseMoney('123.45 DR'), -123.45);
+  assert.equal(B.parseMoney('123.45DR'), -123.45);
+  assert.equal(B.parseMoney('$1,234.50 cr'), 1234.5);
+  assert.equal(B.parseMoney('DR 5.00'), -5);
+  assert.ok(Number.isNaN(B.parseMoney('CR')));
+  assert.ok(Number.isNaN(B.parseMoney('02/11/2026')), 'a date is not an amount');
+  const rows = B.parseCSV(bankFile('cr-dr-amounts.csv'));
+  const fmt = B.detectFormat(rows);
+  assert.ok(fmt, 'a headerless CR/DR file is recognised');
+  assert.deepEqual([fmt.date, fmt.amount, fmt.desc, fmt.balance], [0, 1, 2, 3]);
+  const txns = B.toTransactions(rows, fmt, 'DMY');
+  assert.deepEqual(txns.map(t => t.amount), [-115, 2500, -17.99]);
+  assert.equal(txns[0].balance, 3867.01);
+});
+
+test('transfers: card payments and savings transfers recognised by their text, not rent', () => {
+  assert.ok(B.looksLikeTransfer('PAYMENT RECEIVED, THANK YOU'));
+  assert.ok(B.looksLikeTransfer('PAYMENT - THANK YOU'));
+  assert.ok(B.looksLikeTransfer('Transfer to xx5555 NetBank Savings'));
+  assert.ok(B.looksLikeTransfer('TFR FROM CREDIT CARD 1234'));
+  assert.ok(!B.looksLikeTransfer('Transfer to xx9876 CommBank app Rent November'), 'paying someone else');
+  assert.ok(!B.looksLikeTransfer('Salary ACME PTY LTD'));
+});
+
+test('transfers: the other side is found in another account (same amount the other way, within 3 days)', () => {
+  const txns = [
+    { id: 'a', date: '2026-11-01', amount: -250, description: 'Transfer to xx1111', payee: 'X' },
+    { id: 'b', date: '2026-11-01', amount: -250, description: 'Transfer to xx1111', payee: 'X' },
+    { id: 'c', date: '2026-11-10', amount: -40, description: 'Transfer to xx2222', payee: 'Y' },
+  ];
+  const others = [
+    { id: 'o1', account: 'card', date: '2026-11-03', amount: 250 },
+    { id: 'o2', account: 'savings', date: '2026-11-01', amount: 250 }, // same account: not a transfer
+    { id: 'o3', account: 'card', date: '2026-11-20', amount: 40 },     // too far apart
+  ];
+  const pairs = B.findTransfers(txns, others, 'Savings');
+  assert.equal(pairs.size, 1, 'each side pairs once');
+  assert.equal(pairs.get('a').id, 'o1');
+  const s = B.suggestTransfers([...txns, { id: 'd', date: '2026-11-20', amount: 250, description: 'PAYMENT RECEIVED, THANK YOU', payee: 'P' },
+    { id: 'e', date: '2026-11-20', amount: -9, description: 'PAYMENT RECEIVED', payee: 'Q', action: 'entry1' }], others, 'Savings');
+  assert.deepEqual(s.map(t => [t.action || '', t.why || null]),
+    [['transfer', 'transfer-pair'], ['', null], ['', null], ['transfer', 'transfer-text'], ['entry1', null]],
+    'matches and remembered choices are left alone');
+  // A payee remembered as a transfer
+  const r = B.suggest([{ id: 'z', date: '2026-11-01', amount: -5, description: 'x', payee: 'MY SAVER' }], [], { 'MY SAVER': 'transfer' });
+  assert.deepEqual([r[0].action, r[0].why], ['transfer', 'rule']);
+});
+
+test('refunds follow the payee’s purchases: in this file first, else earlier imports', () => {
+  const txns = [
+    { id: '1', date: '2026-11-01', amount: -60, payee: 'KMART', action: 'e-home' },
+    { id: '2', date: '2026-11-05', amount: 20, payee: 'KMART', action: '' },
+    { id: '3', date: '2026-11-06', amount: 15, payee: 'MYER', action: '' },
+    { id: '4', date: '2026-11-07', amount: 2950, payee: 'SALARY', action: '' },
+    { id: '5', date: '2026-11-08', amount: 5, payee: 'KMART', action: 'ignore' },
+  ];
+  const out = B.suggestRefunds(txns, new Map([['MYER', 'e-clothes'], ['KMART', 'e-other']]));
+  assert.deepEqual(out.map(t => [t.action, t.why || null]),
+    [['e-home', null], ['e-home', 'refund'], ['e-clothes', 'refund'], ['', null], ['ignore', null]]);
+});
+
+test('balance column: checks the amounts, either file order, and spots money out shown as "+"', () => {
+  // CommBank: newest first, adds up as read
+  const rows = B.parseCSV(bankFile('commbank-savings.csv'));
+  const fmt = B.detectFormat(rows);
+  const c = B.checkBalances(B.toTransactions(rows, fmt, 'DMY'));
+  assert.deepEqual(c, { pairs: 4, normal: 4, flipped: 0, latest: { date: '2026-11-15', balance: 3798.4 } });
+  assert.ok(B.balancesAgree(c.normal, c.pairs));
+  // Oldest first, money out as "+": only adds up with the signs switched
+  const r2 = B.parseCSV(bankFile('money-out-positive.csv'));
+  const f2 = B.detectFormat(r2);
+  const c2 = B.checkBalances(B.toTransactions(r2, f2, 'DMY'));
+  assert.deepEqual([c2.normal, c2.flipped, c2.latest], [0, 2, { date: '2026-11-07', balance: 923.4 }]);
+  assert.deepEqual(B.toTransactions(r2, { ...f2, flip: true }, 'DMY').map(t => t.amount), [-4.5, -82.1, 10]);
+  // A row missing from the middle: most still add up; several missing: they don't
+  const t = (date, amount, balance) => ({ date, amount, balance });
+  const gap = [t('2026-11-06', -1, 90), t('2026-11-05', -1, 91), t('2026-11-04', -1, 92), t('2026-11-03', -1, 93), t('2026-11-02', -1, 94), t('2026-11-01', -5, 100)];
+  const c3 = B.checkBalances(gap);
+  assert.ok(B.balancesAgree(c3.normal, c3.pairs), '4 of 5 add up');
+  const bad = B.checkBalances([t('2026-11-03', -1, 50), t('2026-11-02', -1, 70), t('2026-11-01', -1, 90)]);
+  assert.ok(!B.balancesAgree(bad.normal, bad.pairs) && !B.balancesAgree(bad.flipped, bad.pairs));
+  assert.equal(B.checkBalances(B.toTransactions(B.parseCSV(bankFile('commbank-credit-card.csv')), B.detectFormat(B.parseCSV(bankFile('commbank-credit-card.csv'))), 'DMY')), null, 'no balances');
+});
+
+test('balance column is optional: blanks are skipped, a mostly-blank column isn’t checked', () => {
+  const t = (date, amount, balance = null) => ({ date, amount, balance });
+  // Blank balances (e.g. pending rows) break the chain, but rows either side aren't compared across the gap
+  const gappy = [t('2026-11-06', -1, 90), t('2026-11-05', -7), t('2026-11-04', -1, 98), t('2026-11-03', -1, 99), t('2026-11-02', -1, 100)];
+  const c = B.checkBalances(gappy);
+  assert.deepEqual([c.pairs, c.normal], [2, 2]);
+  assert.ok(B.balancesAgree(c.normal, c.pairs));
+  assert.deepEqual(c.latest, { date: '2026-11-06', balance: 90 });
+  // Fewer than half the rows have a balance: not checked at all
+  assert.equal(B.checkBalances([t('2026-11-03', -1, 50), t('2026-11-02', -1, 51), t('2026-11-01', -1), t('2026-10-31', -1), t('2026-10-30', -1)]), null);
+  // No two neighbours both have one: nothing to compare
+  assert.equal(B.checkBalances([t('2026-11-03', -1, 50), t('2026-11-02', -1), t('2026-11-01', -1, 52)]), null);
+});
+
+test('transfers: several files at once, each transaction paired using its own account', () => {
+  const txns = [
+    { id: 's1', account: 'Savings', date: '2026-11-19', amount: -250 },
+    { id: 'c1', account: 'Card', date: '2026-11-20', amount: 250 },
+    { id: 's2', account: 'Savings', date: '2026-11-19', amount: 40 },
+  ];
+  const others = txns.map(t => ({ ...t, kind: 'batch' }));
+  const pairs = B.findTransfers(txns, others);
+  assert.equal(pairs.get('s1').id, 'c1');
+  assert.equal(pairs.get('c1').id, 's1');
+  assert.ok(!pairs.has('s2'), 'nothing the other way in another account');
+});
+
+test('remembered lists drop the oldest transactions first, not the oldest decisions', () => {
+  const list = [{ id: 'new', date: '2026-11-01' }, 'legacy', { id: 'old', date: '2020-01-01' }, { id: 'mid', date: '2024-05-05' }];
+  assert.deepEqual(B.keepNewest(list, 2), [{ id: 'new', date: '2026-11-01' }, { id: 'mid', date: '2024-05-05' }]);
+  assert.equal(B.keepNewest(list, 10), list);
+});
+
 test('payee keys ignore card numbers, dates, places', () => {
   assert.equal(B.payeeKey('NETFLIX.COM MELBOURNE AU AUS Card xx1234 Value Date: 02/11/2026'), 'NETFLIX COM MELBOURNE');
   assert.equal(B.payeeKey('Direct Debit 445566 ORIGIN ENERGY'), 'ORIGIN ENERGY');
@@ -478,10 +614,12 @@ test('card lines: the padded merchant column is the payee, whatever town follows
 
 test('import memory (rules, ignored, accounts) survives a backup round trip', () => {
   const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
-    settings: { payeeRules: { 'ORIGIN ENERGY': 'abc', bad: 5 }, ignoredTxns: ['t1', 't1', 7], bankAccounts: [' CommBank  card '] } });
+    settings: { payeeRules: { 'ORIGIN ENERGY': 'abc', bad: 5 }, ignoredTxns: ['t1', 't1', 7, { id: 't2', date: '2026-11-01' }, { id: 't3', date: 'x' }, { id: 't2' }], bankAccounts: [' CommBank  card '],
+      transfers: [{ id: 'x1', account: 'CommBank Card', date: '2026-11-01', amount: 250 }, { id: 'x1', account: 'a', date: '2026-11-01', amount: 1 }, { id: 'x2', date: 'bad' }] } });
   assert.deepEqual(settings.payeeRules, { 'ORIGIN ENERGY': 'abc' });
-  assert.deepEqual(settings.ignoredTxns, ['t1']);
+  assert.deepEqual(settings.ignoredTxns, ['t1', { id: 't2', date: '2026-11-01' }, 't3'], 'ids, or { id, date } (newer)');
   assert.deepEqual(settings.bankAccounts, ['CommBank card']);
+  assert.deepEqual(settings.transfers, [{ id: 'x1', account: 'commbank card', date: '2026-11-01', amount: 250 }]);
 });
 
 test('card purchases near a bill\'s price are not matched to it on amount alone', () => {

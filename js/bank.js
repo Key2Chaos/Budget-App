@@ -67,16 +67,23 @@ export function parseDate(s, order) {
   return C.iso(date);
 }
 
-/** '-17.99', '+1,234.56', '$5.00', '(12.00)' → number (negative = money out). */
+/** A 'CR' or 'DR' marker before or after an amount: '123.45 DR' is money out, '500.00 CR' money in. */
+const CRDR = /^\s*(CR|DR)\.?\s*|\s*(CR|DR)\.?\s*$/i;
+
+/** '-17.99', '+1,234.56', '$5.00', '(12.00)', '123.45 DR', '500.00 CR' → number (negative = money out). */
 export function parseMoney(s) {
-  const t = String(s ?? '').trim();
-  if (!t) return NaN;
-  const neg = /^\(.*\)$/.test(t) || /^-|-$/.test(t.replace(/[$£€\s]/g, ''));
+  let t = String(s ?? '').trim();
+  if (!t || looksLikeDate(t)) return NaN; // a date is never an amount (e.g. a stray "Value Date" column)
+  const m = CRDR.exec(t);
+  const marker = m ? (m[1] || m[2]).toUpperCase() : null;
+  if (m) t = t.replace(CRDR, '').trim();
+  if (!/\d/.test(t)) return NaN;
+  const neg = marker ? marker === 'DR' : /^\(.*\)$/.test(t) || /^-|-$/.test(t.replace(/[$£€\s]/g, ''));
   const n = parseFloat(t.replace(/[^\d.]/g, ''));
   return Number.isFinite(n) ? (neg ? -n : n) : NaN;
 }
 
-const isMoney = s => /^[-+(]?\s*[$£€]?\s*[\d,]+(\.\d+)?\)?-?$/.test(String(s).trim());
+const isMoney = s => /^(?:(?:CR|DR)\.?\s*)?[-+(]?\s*[$£€]?\s*[\d,]+(\.\d+)?\)?-?(?:\s*(?:CR|DR)\.?)?$/i.test(String(s).trim());
 
 // ---------- Format detection ----------
 
@@ -90,14 +97,30 @@ export function detectFormat(rows) {
   const first = rows[0];
   const hasHeader = !looksLikeDate(first[0]) && first.some(c => /date/i.test(c));
   if (hasHeader) {
-    const h = first.map(c => c.toLowerCase());
-    const find = (...re) => h.findIndex(c => re.some(r => r.test(c)));
+    const h = first.map(c => c.toLowerCase().replace(/\s+/g, ' ').trim());
+    // The patterns are in order of preference: the first one that matches any column wins, so
+    // "Transaction Date" beats an earlier "Value Date", and "Description" beats "Details".
+    // Only the date can come from a column with "date" in its name ("Value Date" is not an amount).
+    const find = (...re) => {
+      for (const r of re) {
+        const i = h.findIndex(c => r.test(c) && !/date/.test(c));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const findDate = (...re) => {
+      for (const r of re) {
+        const i = h.findIndex(c => r.test(c));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
     const fmt = {
       bank: 'Bank', hasHeader: true,
-      date: find(/^date$/, /transaction date/, /date/),
-      amount: find(/^amount/, /value/),
-      debit: find(/debit|withdraw|money out/),
-      credit: find(/credit|deposit|money in/),
+      date: findDate(/^date$/, /^(transaction|trans|txn) date/, /^(posted|posting|booking) date/, /transaction date/, /date/),
+      amount: find(/^amount/, /^(transaction|trans|txn) amount/, /^value$/),
+      debit: find(/debit|withdraw|money out|paid out/),
+      credit: find(/credit|deposit|money in|paid in/),
       desc: find(/desc/, /narrat/, /details/, /payee/, /memo/, /particulars/),
       balance: find(/balance/),
     };
@@ -134,6 +157,7 @@ export function toTransactions(rows, fmt, order) {
       if (Number.isFinite(out_) && out_ !== 0) amount = -Math.abs(out_);
       else if (Number.isFinite(in_)) amount = Math.abs(in_);
     }
+    if (fmt.flip && Number.isFinite(amount)) amount = -amount; // the file shows money out as positive
     const raw = r[fmt.desc] || '';
     const description = raw.replace(/\s+/g, ' ').trim();
     if (!date || !Number.isFinite(amount) || amount === 0 || !description) continue;
@@ -142,6 +166,60 @@ export function toTransactions(rows, fmt, order) {
       balance: Number.isFinite(balance) ? balance : null });
   }
   return out;
+}
+
+// ---------- Balance column ----------
+
+/**
+ * Check the amounts against the Balance column: each row's balance should be the previous row's
+ * plus its amount. Works for files in either order (newest first, like CommBank, or oldest first).
+ * Only neighbouring rows that both have a balance are compared, and a file where fewer than half
+ * the rows have one isn't checked at all (some banks leave it blank, e.g. on pending rows).
+ * Returns null when there's nothing to check, else
+ *   { pairs, normal, flipped, latest: { date, balance } }
+ * where `normal` counts neighbouring rows that add up as read, and `flipped` those that add up with
+ * every amount's sign reversed (a file that shows money out as positive). Pass one file's
+ * transactions in file order, as read, before any flip.
+ */
+export function checkBalances(txns) {
+  const has = t => Number.isFinite(t?.balance);
+  const withBal = txns.filter(has);
+  if (withBal.length < 2 || withBal.length < txns.length / 2) return null;
+  const eq = (a, b) => Math.abs(a - b) < 0.005;
+  let pairs = 0, down = 0, up = 0, downF = 0, upF = 0;
+  for (let i = 0; i < txns.length - 1; i++) {
+    const a = txns[i], b = txns[i + 1];
+    if (!has(a) || !has(b)) continue;
+    pairs++;
+    if (eq(a.balance, b.balance + a.amount)) down++;  // newest first
+    if (eq(a.balance, b.balance - a.amount)) downF++;
+    if (eq(b.balance, a.balance + b.amount)) up++;    // oldest first
+    if (eq(b.balance, a.balance - b.amount)) upF++;
+  }
+  if (!pairs) return null;
+  const first = withBal[0], last = withBal.at(-1);
+  // Which way the file runs: from the dates, else whichever way adds up better
+  const newestFirst = first.date !== last.date ? first.date > last.date : Math.max(down, downF) >= Math.max(up, upF);
+  const latest = newestFirst ? first : last;
+  return { pairs, normal: newestFirst ? down : up, flipped: newestFirst ? downF : upF,
+    latest: { date: latest.date, balance: latest.balance } };
+}
+
+/** Enough neighbouring rows add up (allowing for the odd skipped row) to trust the file as read. */
+export const balancesAgree = (count, pairs) => pairs > 0 && count / pairs >= 0.8;
+
+// ---------- Remembered lists ----------
+
+/**
+ * Cap a list of remembered transactions ({ id, date }, or a bare id from older data) at `max`,
+ * dropping the oldest *transactions* first (bare ids before any dated one), in their original order.
+ */
+export function keepNewest(list, max) {
+  if (list.length <= max) return list;
+  const dated = list.map((x, i) => ({ i, d: typeof x === 'string' ? '' : x.date || '' }));
+  dated.sort((a, b) => a.d.localeCompare(b.d) || a.i - b.i);
+  const keep = new Set(dated.slice(-max).map(o => o.i));
+  return list.filter((_, i) => keep.has(i));
 }
 
 // ---------- Payee keys & transaction ids ----------
@@ -289,7 +367,7 @@ export const matchedOn = m => [m.name && 'name', m.amount && 'amount', m.date &&
 
 /**
  * Suggest an action for each transaction: a remembered rule, else the best-scoring entry (≥ 4).
- * rules: { [payeeKey]: entryId | 'ignore' }
+ * rules: { [payeeKey]: entryId | 'ignore' | 'transfer' }
  * names: { [payeeKey]: the user's own name for that payee } — added to each transaction as `name`.
  */
 export function suggest(txns, entries, rules = {}, names = {}) {
@@ -298,7 +376,7 @@ export function suggest(txns, entries, rules = {}, names = {}) {
     const name = names[t0.payee] ?? names[t0.oldPayee] ?? null;
     const t = name ? { ...t0, name } : t0;
     const rule = rules[t.payee] ?? rules[t.oldPayee];
-    if (rule === 'ignore') return { ...t, action: 'ignore', why: 'rule' };
+    if (rule === 'ignore' || rule === 'transfer') return { ...t, action: rule, why: 'rule' };
     if (rule && byId.has(rule)) return { ...t, action: rule, why: 'rule' };
     let best = null, bestM = null;
     for (const e of entries) {
@@ -383,4 +461,90 @@ export function findRecurring(txns) {
     });
   }
   return out.sort((a, b) => b.txns.length - a.txns.length);
+}
+
+// ---------- Transfers between your own accounts ----------
+
+/**
+ * Bank text that's almost always money moving between your own accounts: paying off a credit card,
+ * or a transfer to or from a savings account. Plain "Transfer to xx9876 …" isn't enough on its own:
+ * that's also how rent or a payment to a friend looks.
+ */
+const TRANSFER_TEXT = [
+  /\bPAYMENT RECEIVED\b/, /\bPAYMENT\W+THANK ?YOU\b/, /\bINTERNAL TRANSFER\b/,
+  /\b(CREDIT ?CARD|CARD) (RE)?PAYMENT\b/,
+  /\b(TRANSFER|TFR|XFER)\b.*\b(SAVINGS?|SAVER|CREDIT ?CARD|OFFSET|EVERYDAY)\b/,
+];
+export const looksLikeTransfer = description => {
+  const s = String(description).toUpperCase();
+  return TRANSFER_TEXT.some(r => r.test(s));
+};
+
+/** How far apart the two sides of a transfer can be (a card payment can take a few days to arrive). */
+export const TRANSFER_DAYS = 3;
+
+/**
+ * Pair transactions with the other side of a transfer in another of your accounts: the same amount
+ * the other way, within TRANSFER_DAYS. others: [{ id, account, date, amount (bank sign) }], e.g.
+ * transactions already imported into another account's catch-all entry. Each one pairs at most once,
+ * nearest date first. `account` is the transactions' account, unless each has its own `account`.
+ * Returns Map txnId → other.
+ */
+export function findTransfers(txns, others, account) {
+  const pairs = [];
+  for (const t of txns) {
+    const acc = String(t.account ?? account).toLowerCase(); // each transaction's own account, when several files are imported together
+    for (const o of others) {
+      if (String(o.account).toLowerCase() === acc) continue;
+      if (Math.abs(o.amount + t.amount) >= 0.005) continue;
+      const days = Math.abs(C.daysBetween(o.date, t.date));
+      if (days <= TRANSFER_DAYS) pairs.push({ t, o, days });
+    }
+  }
+  pairs.sort((a, b) => a.days - b.days);
+  const out = new Map(), used = new Set();
+  for (const { t, o } of pairs) {
+    if (out.has(t.id) || used.has(o.id)) continue;
+    out.set(t.id, o);
+    used.add(o.id);
+  }
+  return out;
+}
+
+/**
+ * Mark unmatched transactions that look like transfers between your own accounts
+ * (action 'transfer'): the other side found in another account (why 'transfer-pair', with `pair`),
+ * else the bank's text (why 'transfer-text'). Matches and remembered choices are left alone.
+ */
+export function suggestTransfers(txns, others, account) {
+  const open = txns.filter(t => !t.action);
+  const pairs = findTransfers(open, others, account);
+  return txns.map(t => {
+    if (t.action) return t;
+    const pair = pairs.get(t.id);
+    if (pair) return { ...t, action: 'transfer', why: 'transfer-pair', pair };
+    if (looksLikeTransfer(t.description)) return { ...t, action: 'transfer', why: 'transfer-text' };
+    return t;
+  });
+}
+
+// ---------- Refunds ----------
+
+/**
+ * Money back from a payee you pay (a refund) goes to the same entry as their purchases, as a
+ * credit, rather than counting as income: first where their purchases in this file are going, else
+ * where their earlier imported payments went. history: Map payeeKey → expense entry id.
+ */
+export function suggestRefunds(txns, history = new Map()) {
+  const spentAt = new Map(); // payee → entry id their purchases in this file matched
+  for (const t of txns) {
+    if (t.amount < 0 && t.action && !['ignore', 'transfer'].includes(t.action)) {
+      for (const k of [t.payee, t.oldPayee]) if (k && !spentAt.has(k)) spentAt.set(k, t.action);
+    }
+  }
+  return txns.map(t => {
+    if (t.action || t.amount <= 0) return t;
+    const id = spentAt.get(t.payee) ?? spentAt.get(t.oldPayee) ?? history.get(t.payee) ?? history.get(t.oldPayee);
+    return id ? { ...t, action: id, why: 'refund' } : t;
+  });
 }
