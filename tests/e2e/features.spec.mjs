@@ -1,5 +1,5 @@
 // Labels, payments, varying bills, shares, budgets, payday, year view.
-import { test, expect, openWithSample, tab, card, row, editEntry, save } from './helpers.mjs';
+import { test, expect, openWithSample, tab, card, row, editEntry, sheetPage, save } from './helpers.mjs';
 
 test.describe('labels', () => {
   test('spelling snaps to existing labels and tags are tidied', async ({ page }) => {
@@ -53,6 +53,7 @@ test.describe('payments', () => {
     await openWithSample(page);
     await editEntry(page, 'Water');
     await expect(page.locator('#prices input[name=pamount]').first()).toBeHidden(); // amounts come from the log
+    await sheetPage(page, 'transactions');
     await page.locator('[data-add-payment]').click();
     await page.locator('#payments .pay-row').first().locator('[name=payamount]').fill('101.10');
     await page.locator('[data-add-payment]').click();
@@ -74,6 +75,7 @@ test.describe('payments', () => {
     await tab(page, 'entries');
     await expect(row(page, 'Gas')).toContainText('Varies');
     await editEntry(page, 'Gas');
+    await sheetPage(page, 'transactions');
     await page.locator('[data-add-payment]').click();
     await page.locator('#payments .pay-row').first().locator('[name=payamount]').fill('180');
     await save(page);

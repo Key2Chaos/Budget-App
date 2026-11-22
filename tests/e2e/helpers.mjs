@@ -58,6 +58,11 @@ export async function editEntry(page, name) {
   await expect(page.locator('#sheet[open]')).toBeVisible();
 }
 
+/** Switch the open entry sheet to one of its pages: 'summary', 'transactions' or 'accounts'. */
+export async function sheetPage(page, name) {
+  await page.locator(`#sheet [role=tab][data-page=${name}]`).click();
+}
+
 export async function save(page) {
   await page.locator('.sheet-head [type=submit]').click();
 }

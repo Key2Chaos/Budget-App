@@ -431,3 +431,14 @@ form.is-variable #prices .icon-btn { order: 4; flex: none; }
   transition: opacity 0.2s, transform 0.2s;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- Entry sheet pages: Summary · Transactions · Accounts ---------- */
+.sheet-tabs { margin-bottom: 16px; }
+form.tabbed .tab-panel:not(.on) { display: none; }
+.sum-card { margin-bottom: 16px; }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-value { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.sum-links { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 0.5px solid var(--line); }
+.sum-links .link { font-size: 15px; padding: 0; }
+.sheet-tabs button { white-space: nowrap; }

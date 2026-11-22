@@ -746,9 +746,81 @@ async function movePayee(from, key, to) {
   }
   await reload();
   const fresh = state.entries.find(e => e.id === from.id);
-  if (fresh) openSheet(fresh); // redraw in place, ready to move the next payee
+  if (fresh) openSheet(fresh, 'accounts'); // redraw in place, ready to move the next payee
   else closeSheet();
   toast(`Moved ${pays.length} payment${pays.length === 1 ? '' : 's'} to ${dest.name}`); // after the redraw, or it's wiped
+}
+
+/** Switch the entry sheet to one of its pages (Summary, Transactions, Accounts). */
+function showTab(form, tab) {
+  for (const b of form.querySelectorAll('[role=tab][data-page]')) {
+    const on = b.dataset.page === tab;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on);
+  }
+  for (const p of form.querySelectorAll('.tab-panel')) p.classList.toggle('on', p.dataset.panel === tab);
+  sheet.scrollTop = 0;
+}
+
+/** The figures at the top of an entry's Summary page. */
+function summaryCard(entry) {
+  const pays = entry.payments || [];
+  const today = C.todayISO();
+  const yearAgo = C.addDaysISO(today, -365);
+  const total = pays.reduce((n, p) => n + p.amount, 0);
+  const lastYear = pays.filter(p => p.date > yearAgo && p.date <= today).reduce((n, p) => n + p.amount, 0);
+  const last = pays.reduce((d, p) => (p.date > d ? p.date : d), '');
+  const monthly = C.isEnded(entry) ? 0 : C.monthlyEquivalent(entry);
+  const next = C.isIrregular(entry) || C.isEnded(entry) ? null : C.nextDue(entry);
+  const accounts = new Set(pays.map(p => accountOfPayment(p, entry)).filter(Boolean));
+  const stat = (label, value) => `<div class="stat"><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
+  return `<section class="card pad sum-card">
+    <div class="stat-grid">
+      ${stat('A month', monthly ? `${entry.variable ? '≈' : ''}${money(monthly)}` : '—')}
+      ${stat('Last 12 months', pays.length ? money(lastYear) : '—')}
+      ${stat('Payments', `${pays.length}${pays.length ? ` · ${money(total)}` : ''}`)}
+      ${stat(next ? 'Next due' : 'Last payment', esc(next ? fmtDate(next) : last ? fmtDate(last) : '—'))}
+    </div>
+    ${pays.length || accounts.size ? `<div class="sum-links">
+      ${pays.length ? `<button type="button" class="link" data-page="transactions">See ${pays.length} transaction${pays.length === 1 ? '' : 's'} ›</button>` : ''}
+      ${accounts.size ? `<button type="button" class="link" data-page="accounts">${accounts.size} account${accounts.size === 1 ? '' : 's'} ›</button>` : ''}
+    </div>` : ''}
+  </section>`;
+}
+
+/**
+ * Which bank account an imported payment came from: stored on newer payments; for older ones, the
+ * account of the catch-all it's in, or of the import it came in with. Null when logged by hand.
+ */
+function accountOfPayment(p, entry) {
+  if (!p.source) return null;
+  const key = acc => accountKeys().find(k => k.toLowerCase() === String(acc).toLowerCase()) || acc;
+  if (p.account) return key(p.account);
+  if (entry?.catchAll) return key(entry.catchAll.slice(0, entry.catchAll.lastIndexOf('|')));
+  const b = (state.settings.importLog || []).find(x => x.id === p.batch);
+  const accs = b ? b.accounts || [b.account] : [];
+  return accs.length === 1 ? key(accs[0]) : 'unknown';
+}
+
+/** "Accounts" page: how much of this entry was paid from each bank account (and by hand). */
+function accountsSection(entry) {
+  const by = new Map();
+  for (const p of entry.payments || []) {
+    const k = accountOfPayment(p, entry) || 'hand';
+    const g = by.get(k) || { key: k, n: 0, total: 0, last: '' };
+    g.n++; g.total += p.amount; g.last = p.date > g.last ? p.date : g.last;
+    by.set(k, g);
+  }
+  if (!by.size) return `<section class="card pad"><p class="muted">No payments yet. Payments imported from a bank
+    statement show here by account, with the payees they came from.</p></section>`;
+  const label = k => (k === 'hand' ? 'Logged by hand' : k === 'unknown' ? 'Imported (account not recorded)' : accountName(k));
+  const groups = [...by.values()].sort((a, b) => (a.key === 'hand') - (b.key === 'hand') || b.total - a.total);
+  return `<div class="group-title">By account (${groups.length})</div>
+    <section class="card list">${groups.map(g => `<div class="row static">
+      <div class="row-main"><div class="row-title">${esc(label(g.key))}</div>
+      <div class="row-sub">${g.n} payment${g.n === 1 ? '' : 's'} · last ${esc(fmtDate(g.last))}</div></div>
+      <div class="row-amt">${money(g.total)}</div></div>`).join('')}
+    </section>`;
 }
 
 /** One logged payment: date, Paid/Credit toggle, amount (full bill). */
@@ -766,20 +838,26 @@ function payRow(p) {
   </div>`;
 }
 
-function openSheet(entry = null) {
+function openSheet(entry = null, tab = 'summary') {
   const isNew = !entry;
   const e = entry || { type: 'expense', frequency: 'monthly', startDate: C.todayISO(), prices: [{ from: C.todayISO(), amount: '' }] };
   const all = C.sortedPrices(e);
   const prices = e.frequency === 'once' ? all.slice(0, 1) : all; // a one-off only ever uses its first amount
 
   sheet.innerHTML = `
-  <form id="entryForm" novalidate>
+  <form id="entryForm" class="${isNew ? '' : 'tabbed'}" novalidate>
     <div class="sheet-head">
       <button type="button" class="link" data-close>Cancel</button>
       <h2 tabindex="-1" autofocus>${isNew ? 'New entry' : 'Edit entry'}</h2>
       <button type="submit" class="link strong">Save</button>
     </div>
     <div class="sheet-body">
+      ${isNew ? '' : `<div class="seg sheet-tabs" role="tablist" aria-label="Entry pages">
+        ${[['summary', 'Summary'], ['transactions', 'Transactions'], ['accounts', 'Accounts']]
+          .map(([k, label]) => `<button type="button" role="tab" data-page="${k}" aria-selected="${k === tab}" class="${k === tab ? 'on' : ''}">${label}</button>`).join('')}
+      </div>`}
+      <div class="tab-panel ${tab === 'summary' ? 'on' : ''}" data-panel="summary" role="tabpanel">
+      ${isNew ? '' : summaryCard(entry)}
       <div class="seg type-seg">
         <label><input type="radio" name="type" value="expense" ${e.type !== 'income' ? 'checked' : ''}><span>Expense</span></label>
         <label><input type="radio" name="type" value="income" ${e.type === 'income' ? 'checked' : ''}><span>Income</span></label>
@@ -832,10 +910,6 @@ function openSheet(entry = null) {
         and the estimate is the average of your latest three. <strong>Manual</strong>: it appears under “To pay” with a Mark paid button.
         <strong>Your share</strong>: for split bills, only your part counts in the budget.</p>
 
-      <div class="group-title">Payments made</div>
-      <section class="card form" id="payments">${C.paymentsOf(e).reverse().map(payRow).join('')}</section>
-      <button type="button" class="link add-price" data-add-payment>+ Log payment</button>
-      ${entry ? payeesSection(entry) : ''}
 
       <section class="card form">
         <label class="field"><span>Category</span>
@@ -871,8 +945,21 @@ function openSheet(entry = null) {
           <textarea name="notes" rows="3" placeholder="Account number, renewal terms…">${esc(e.notes)}</textarea></label>
       </section>
 
-      <p class="form-error" id="formError" role="alert"></p>
       ${isNew ? '' : '<button type="button" class="btn danger-btn" data-delete>Delete entry</button>'}
+      </div>
+
+      ${isNew ? '' : `<div class="tab-panel ${tab === 'transactions' ? 'on' : ''}" data-panel="transactions" role="tabpanel">
+        <div class="group-title">Payments made</div>
+        <section class="card form" id="payments">${C.paymentsOf(e).reverse().map(payRow).join('')}</section>
+        <button type="button" class="link add-price" data-add-payment>+ Log payment</button>
+        <p class="fine pad-x">Newest first. Changes here are kept when you tap Save.</p>
+      </div>
+
+      <div class="tab-panel ${tab === 'accounts' ? 'on' : ''}" data-panel="accounts" role="tabpanel">
+        ${accountsSection(entry)}
+        ${payeesSection(entry)}
+      </div>`}
+      <p class="form-error" id="formError" role="alert"></p>
     </div>
     <datalist id="dl-cat"></datalist>
     <datalist id="dl-method"></datalist>
@@ -951,7 +1038,9 @@ function openSheet(entry = null) {
   form.addEventListener('click', ev => {
     const rm = ev.target.closest('[data-remove-tag]');
     const add = ev.target.closest('[data-add-tag]');
-    if (rm) { tags = tags.filter(t => t !== rm.dataset.removeTag); renderTags(); }
+    const tabBtn = ev.target.closest('[data-page]');
+    if (tabBtn) showTab(form, tabBtn.dataset.page);
+    else if (rm) { tags = tags.filter(t => t !== rm.dataset.removeTag); renderTags(); }
     else if (add) { tagInput.value = ''; addTags([add.dataset.addTag]); }
     else if (ev.target.closest('[data-close]')) closeSheet();
     else if (ev.target.closest('[data-add-price]')) {
@@ -1186,7 +1275,7 @@ function openUndoImports() {
         // A payment you logged yourself and an import then matched goes back to being yours.
         payments: e.payments.filter(p => !p.source || p.handLogged).map(p => {
           if (!p.source) return p;
-          const { source, handLogged, ...mine } = p;
+          const { source, handLogged, account, ...mine } = p;
           return mine;
         }),
       }));
@@ -1952,12 +2041,12 @@ async function applyImport() {
       // Already logged by hand: keep that payment, but take the bank's actual date and amount.
       undo.linked.push(e.payments.find(p => p.id === link.id));
       const payments = e.payments.map(p => (p.id === link.id
-        ? { ...p, date: t.date, amount, due: p.due || Bank.nearestDue(e, t.date), note: p.note || note, source: t.id, handLogged: true }
+        ? { ...p, date: t.date, amount, due: p.due || Bank.nearestDue(e, t.date), note: p.note || note, source: t.id, account: t.account, handLogged: true }
         : p));
       changed.set(e.id, { ...e, payments, updatedAt: now });
       linked++;
     } else {
-      const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note, source: t.id, payee: t.payee, batch };
+      const payment = { id: uid(), date: t.date, amount, due: Bank.nearestDue(e, t.date), note, source: t.id, payee: t.payee, account: t.account, batch };
       changed.set(e.id, { ...e, payments: [...(e.payments || []), payment], updatedAt: now });
     }
     // Remember the payee only for choices you made, name matches and existing rules. A match on

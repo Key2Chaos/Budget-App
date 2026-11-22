@@ -118,8 +118,11 @@ No backend, no account. All data lives on the device in IndexedDB.
     spending – <account>* (or *Other income – <account>* for money in). Change any row before
     importing, or choose *Skip for now* / *Ignore*.
   - **Sorting it out later:** open an entry with imported payments from several payees (like the
-    catch-all) and use **Payees → Move to…** to move all of one payee's payments to another entry, or
-    into a new entry of its own. Future imports send that payee there too.
+    catch-all), go to its **Accounts** page and use **Payees → Move to…** to move all of one payee's
+    payments to another entry, or into a new entry of its own. Future imports send that payee there too.
+  - **Entry pages:** an existing entry opens on **Summary** (a month, last 12 months, payments,
+    next due, plus its settings), with **Transactions** (the payment log) and **Accounts** (totals per
+    bank account, and the payees it's made of) as separate pages. Save keeps changes from all three.
   - **New entry from any transaction:** the dropdown's *+ New entry* creates one for that payee, and
     takes their other undecided transactions with it. It becomes a recurring entry if the payee looks
     recurring, *Variable (no set schedule)* if there are several transactions, or a one-off if
