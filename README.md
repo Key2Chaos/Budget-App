@@ -176,7 +176,8 @@ The app keeps labels consistent for you:
 
 ## Backlog
 
-Planned work and ideas live in [BACKLOG.md](BACKLOG.md).
+Planned work and ideas live in [BACKLOG.md](BACKLOG.md). The design for accounts, payees and
+groups is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Run locally
 
@@ -286,7 +287,15 @@ ask for the history to be rewritten if you also want it gone from old commits.
 | --- | --- |
 | `index.html` | App shell, tab bar, iOS meta tags |
 | `styles.css` | iOS-style UI, light and dark themes |
-| `js/app.js` | Views, entry form, backup and import |
+| `js/app.js` | Entry point: button actions, global events, start-up |
+| `js/core.js` | Shared state, constants and helpers (money, dates, labels, tags, toast). Imports no other UI file, so it always loads first |
+| `js/render.js` | Draws the current tab; `reload()` re-reads entries |
+| `js/view-overview.js`, `js/view-entries.js`, `js/view-settings.js` | The three tabs |
+| `js/sheet-entry.js` | The entry sheet (Summary, Transactions, Accounts), save and delete |
+| `js/sheet-budgets.js`, `js/sheet-labels.js` | The Budgets and Manage labels sheets |
+| `js/importer.js` | Bank import screens: review, apply, undo (the pure logic is in `bank.js`) |
+| `js/backup.js` | Backup export / import, spreadsheet export, sample data |
+| `js/bank.js` | Pure bank-statement logic: CSV, formats, payee keys, matching, transfers |
 | `js/calc.js` | Pure date/money logic (frequencies, price history, monthly totals) |
 | `js/chart.js` | Dependency-free SVG chart |
 | `js/db.js` | IndexedDB wrapper |

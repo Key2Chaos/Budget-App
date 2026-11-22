@@ -9,6 +9,7 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 
 | # | Item | Size | Why |
 |---|------|------|-----|
+| 1 | **Accounts, payees and groups** as designed in [docs/DESIGN.md](docs/DESIGN.md): format v5, Accounts and Payees lists, the group picker (pick or create), suggestions for the same company under different text or accounts, method breakdown | L | Statements show one company many ways; this puts them together and shows where money came from |
 | 2 | **Undo after delete.** Show a toast with an *Undo* button instead of (or as well as) the confirm box. Covers entries, payments, labels and budgets | S | Mistakes are easy to recover from. Fewer pop-ups |
 | 3 | **Add to Calendar.** Export contract end and notice dates (and optionally big yearly bills) as a calendar file, with an alert before each | S | Reminders that work offline, with no server |
 | 4 | **Duplicate entry.** A "Duplicate" button in the edit sheet | S | Faster to add similar bills |
@@ -37,7 +38,6 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 
 ## Housekeeping
 
-- Split `js/app.js` (~1,400 lines) into one file per screen (Overview, Entries, Settings, sheets) before it grows much more.
 - Accessibility pass: VoiceOver labels on icon buttons, colour contrast of the muted text, and the order of the segmented controls.
 - Real-iPhone checklist before big releases: date pickers, the share sheet, Home Screen install, dark mode, and the notch/home-bar spacing.
 - Desktop-only: the date box's calendar icon is slightly clipped in the payment rows (not visible on iPhone).
@@ -74,4 +74,5 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-22 | Bank import: Undo last import (steps back through the last 5); amounts checked against the Balance column, "money out is +" files spotted and switched, newest balance sets "Balance now" |
 | 2026-11-22 | Bank import: several files at once (own account/check each, transfers paired between them); matched rows grouped and folded away; ignored list keeps the newest transactions (20,000) instead of silently dropping recent decisions; balance check skips blanks |
 | 2026-11-22 | Entries split into three pages — Summary (key figures + settings), Transactions (payment log), Accounts (per bank account totals + payees with Move to…); imported payments now record their account |
+| 2026-11-22 | Design for accounts, payees and groups agreed ([docs/DESIGN.md](docs/DESIGN.md)). `js/app.js` split into one file per screen (no change in behaviour) |
 | 2026-11-22 | Bank import: every unmatched payee gets an entry of its own (no more Everyday spending by default); very similar payees share one; transfers are taken out of those entries too. Payment log: signed amounts with ±, credits in green, "Received" / "Paid back" on income |
