@@ -1,5 +1,5 @@
 // Adding, editing, deleting, searching and filtering entries.
-import { test, expect, openWithSample, tab, row, editEntry, save } from './helpers.mjs';
+import { test, expect, openWithSample, tab, row, editEntry, sheetPage, save } from './helpers.mjs';
 
 test('add: validation, typed amounts, and the new row', async ({ page }) => {
   await openWithSample(page);
@@ -98,4 +98,38 @@ test('search and the Expenses / Income filter', async ({ page }) => {
   await page.locator('[data-action=filter][data-filter=income]').click();
   await expect(page.locator('.row[data-action=edit]')).toHaveCount(2); // Salary, Freelance
   await page.locator('[data-action=filter][data-filter=all]').click();
+});
+
+test('an entry has three pages: Summary, Transactions and Accounts', async ({ page }) => {
+  await openWithSample(page);
+  await page.locator('#addBtn').click();
+  await expect(page.locator('#sheet [role=tab]')).toHaveCount(0);          // a new entry is one page
+  await page.locator('#sheet .sheet-head [data-close]').click();
+
+  await editEntry(page, 'Water');
+  const tabs = page.locator('#sheet [role=tab]');
+  await expect(tabs).toHaveText(['Summary', 'Transactions', 'Accounts']);
+  const on = page.locator('#sheet .tab-panel.on');
+  await expect(on).toContainText('A month');
+  await expect(on).toContainText('Last 12 months');
+  await expect(page.locator('#payments')).toBeHidden();
+  await expect(page.locator('[name=notes]')).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('summary.png'), fullPage: true });
+
+  await on.getByRole('button', { name: /^See \d+ transactions? ›$/ }).click(); // shortcut from the summary
+  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#payments .pay-row').first()).toBeVisible();
+  await expect(page.locator('[name=notes]')).toBeHidden();
+  const n = await page.locator('#payments .pay-row').count();
+  await page.locator('[data-add-payment]').click();
+  await page.locator('#payments .pay-row').first().locator('[name=payamount]').fill('50');
+
+  await sheetPage(page, 'accounts');
+  await expect(page.locator('#sheet .tab-panel.on')).toContainText('Logged by hand');
+
+  await save(page);                                                          // saves every page, not just the one showing
+  await expect(page.locator('#sheet[open]')).toHaveCount(0);
+  await editEntry(page, 'Water');
+  await sheetPage(page, 'transactions');
+  await expect(page.locator('#payments .pay-row')).toHaveCount(n + 1);
 });

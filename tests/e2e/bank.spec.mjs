@@ -1,6 +1,6 @@
 // Importing a CommBank-style statement (made-up data), as an Australian user would.
 import { fileURLToPath } from 'node:url';
-import { test, expect, openWithSample, tab, row, editEntry, fixturePath } from './helpers.mjs';
+import { test, expect, openWithSample, tab, row, editEntry, sheetPage, fixturePath } from './helpers.mjs';
 
 test.use({ locale: 'en-AU', timezoneId: 'Australia/Sydney' });
 const csv = name => fileURLToPath(new URL(`../fixtures/bank/${name}`, import.meta.url));
@@ -89,6 +89,7 @@ test('a payment already logged by hand is updated with the bank date, not added 
   await openWithSample(page);
   // The sample water bill has a hand-logged $88.40 on 10 Aug; move it to 12 Aug, as if marked paid late.
   await editEntry(page, 'Water');
+  await sheetPage(page, 'transactions');
   const pays = page.locator('#payments .pay-row');
   const before = await pays.count();
   const aug = pays.filter({ has: page.locator('[name=payamount][value="88.40"]') });
@@ -104,6 +105,7 @@ test('a payment already logged by hand is updated with the bank date, not added 
   await expect(page.locator('#toast')).toContainText("updated 1 you'd logged");
 
   await editEntry(page, 'Water');
+  await sheetPage(page, 'transactions');
   await expect(pays).toHaveCount(before);                                   // no second copy
   await expect(pays.filter({ has: page.locator('[name=paydate][value="2026-08-10"]') })).toHaveCount(1); // bank's date
 });
@@ -301,6 +303,9 @@ test('everything imports by default; payees can be moved out of the catch-all la
 
   const everyday = 'Everyday spending – CommBank credit card';
   await editEntry(page, everyday);
+  await expect(page.locator('#sheet .payee-row').first()).toBeHidden();     // payees are on the Accounts page
+  await sheetPage(page, 'accounts');
+  await expect(page.locator('#sheet .tab-panel.on')).toContainText('CommBank credit card');
   const payees = page.locator('#sheet .payee-row');
   await expect(page.locator('#sheet')).toContainText('Payees (');
   const before = await payees.count();
@@ -310,6 +315,7 @@ test('everything imports by default; payees can be moved out of the catch-all la
   await moveSel('Kmart').selectOption({ label: '+ New entry: Kmart Bondi' });
   await expect(page.locator('#toast')).toContainText('Moved 1 payment to Kmart Bondi');
   await expect(page.locator('#sheet[open]')).toBeVisible();                // still here, ready for the next one
+  await expect(page.locator('#sheet [role=tab][data-page=accounts]')).toHaveAttribute('aria-selected', 'true');
   await expect(moveSel('Kmart')).toHaveCount(0);
   await expect(payees).toHaveCount(before - 1);
   await expect(page.locator('#sheet .payee-row')).not.toHaveCount(0);       // a catch-all lists even its last payee

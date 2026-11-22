@@ -118,7 +118,7 @@ function normalizeShare(v) {
 }
 
 /** Logged payments: { id, date, amount (negative = refund/credit), due (which payment it settles), note,
- *  source (bank transaction id, if imported), handLogged (logged by hand, then matched by an import) }. */
+ *  source (bank transaction id, if imported), payee and account (imported: which payee and bank account), handLogged (logged by hand, then matched by an import) }. */
 function normalizePayments(list) {
   if (!Array.isArray(list)) return [];
   return list
