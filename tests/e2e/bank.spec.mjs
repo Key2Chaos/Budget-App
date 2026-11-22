@@ -369,12 +369,14 @@ test('payees can be moved out of a catch-all later', async ({ page }) => {
   await picker.locator('.pick-search').fill('groceries');
   await expect(picker.locator('[data-create]')).toHaveCount(0);           // matches an existing group
   await picker.locator('.pick-search').press('Enter');
-  await expect(page.locator('#toast')).toContainText('to Groceries');
-  await page.locator('#sheet .sheet-head [data-close]').click();
+  // That was its last payee: the catch-all is empty, so it goes
+  await expect(page.locator('#toast')).toContainText(`to Groceries · “${everyday}” removed (empty)`);
+  await expect(page.locator('#sheet[open]')).toHaveCount(0);
 
   await tab(page, 'entries');
   await expect(row(page, 'Kmart Bondi')).toContainText('$');
   await expect(row(page, 'Groceries')).toContainText('Last $');
+  await expect(row(page, everyday)).toHaveCount(0);
 });
 
 test('ambiguous dates: the user can switch the order and sees a preview', async ({ page }) => {

@@ -16,6 +16,13 @@ No backend, no account. All data lives on the device in IndexedDB.
   - Each group's **Summary** shows how it was paid, e.g. "Paid by BPAY $240 · Card $55", and from
     which accounts.
   - **Move…** on a payment moves just that payment to another group.
+  - **Merge into another group…** (on a group's Summary page) moves all of a group's payments,
+    payees and budget into another group and removes it. Use it when the same company ended up in
+    two groups.
+  - **Empty groups tidy themselves up.** When a move or merge leaves a group the app made (on an
+    import, or by typing a name in the picker) with no payments and no payees, it's removed. Groups
+    you set up yourself, like a monthly bill, always stay. Merging two payees puts all their
+    payments in one group: the payee's group, or the one that already has most of them.
   - **Deleting a group** moves its imported payments to *Ungrouped spending* (or income). Nothing
     imported is lost, and its payees can be put in another group.
 - **Payees** (Settings → Payees): who you pay and who pays you, from bank imports. Each payee is in

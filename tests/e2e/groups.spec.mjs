@@ -191,3 +191,75 @@ test('data saved before format 5: accounts and payees are upgraded on start-up',
   expect(stored.accounts.map(a => a.name)).toEqual(['CommBank account', 'Everyday card']);
   expect(stored.payees.find(p => p.keys.includes('SUPERLOOP')).groupId).toBe('f4000000-0000-4000-8000-000000000001');
 });
+
+test('a group with one payee can be merged into another group', async ({ page }) => {
+  await openWithSample(page);
+  await importWithNewGroup(page);                                           // School things: one payee, Kmart Bondi
+  await editEntry(page, 'School things');
+  await sheetPage(page, 'accounts');
+  await expect(page.getByRole('button', { name: /^Move Kmart Bondi/ })).toBeVisible(); // even its only payee can move
+  await sheetPage(page, 'summary');
+  await page.getByRole('button', { name: 'Merge into another group…' }).click();
+  await expect(picker(page).locator('[data-create]')).toHaveCount(0);       // only existing groups
+  await picker(page).locator('.pick-search').fill('groc');
+  await picker(page).locator('[data-pick]', { hasText: 'Groceries' }).click();
+  expect(page.dialogs.at(-1)).toContain('Merge “School things” into “Groceries”? Its 1 payment moves there');
+  await expect(page.locator('#toast')).toContainText('Merged into Groceries · 1 payment moved');
+  await expect(page.locator('#sheet h2')).toHaveText('Edit group');
+  await expect(page.locator('#sheet [name=name]')).toHaveValue('Groceries');
+  await page.locator('#sheet .sheet-head [data-close]').click();
+
+  await tab(page, 'entries');
+  await expect(row(page, 'School things')).toHaveCount(0);
+  await tab(page, 'settings');
+  await page.locator('[data-action=open-payees]').click();
+  await expect(page.locator('#payees [data-payee]', { hasText: 'Kmart Bondi' })).toContainText('Groceries');
+});
+
+test('merging two payees puts all their payments in one group; the emptied group goes', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-credit-card.csv');                      // Kmart and Woolworths each get a group
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+  await tab(page, 'entries');
+  await expect(row(page, 'Woolworths Sydney')).toBeVisible();
+
+  await tab(page, 'settings');
+  await page.locator('[data-action=open-payees]').click();
+  await page.locator('#payees [data-payee]', { hasText: 'Kmart Bondi' }).click();
+  await page.locator('#payee [data-merge]').click();
+  await picker(page).locator('.pick-search').fill('wool');
+  await picker(page).locator('[data-pick]').first().click();
+  await expect(page.locator('#toast')).toContainText('· all in Kmart Bondi · “Woolworths Sydney” removed (empty)');
+  await page.locator('#payee [data-close]').click();
+
+  await tab(page, 'entries');
+  await expect(row(page, 'Woolworths Sydney')).toHaveCount(0);
+  await editEntry(page, 'Kmart Bondi');
+  await sheetPage(page, 'transactions');
+  await expect(page.locator('#payments')).toContainText('WOOLWORTHS');
+  await expect(page.locator('#payments')).toContainText('KMART');
+});
+
+test('start-up tidies empty groups earlier moves left behind, once; groups you made stay', async ({ page }) => {
+  await page.goto('/');
+  const group = (id, name, extra) => ({ id, type: 'expense', name, category: '', method: '', frequency: 'irregular',
+    startDate: '2026-10-01', contractEnd: null, endsAtExpiry: false, endDate: null, notes: '', tags: [],
+    prices: [{ from: '2026-10-01', amount: null, frequency: 'irregular' }], variable: true, manual: false, share: 100,
+    noticeDays: null, payments: [], createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', ...extra });
+  await page.evaluate(gs => new Promise((resolve, reject) => {
+    const req = indexedDB.open('budget-pwa', 1);
+    req.onsuccess = () => {
+      const tx = req.result.transaction(['entries', 'settings'], 'readwrite');
+      for (const g of gs) tx.objectStore('entries').put(g);
+      tx.objectStore('settings').put({ currency: 'AUD', schemaVersion: 5 }, 'settings');
+      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  }), [group('a', 'Left behind', { fromImport: true }), group('b', 'Fuel (mine)', {})]);
+  await page.reload();
+  await expect(page.locator('#toast')).toContainText('Tidied up · “Left behind” removed (empty)');
+  await tab(page, 'entries');
+  await expect(row(page, 'Left behind')).toHaveCount(0);
+  await expect(row(page, 'Fuel (mine)')).toBeVisible();
+});

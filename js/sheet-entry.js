@@ -7,6 +7,7 @@ import * as M from './model.js';
 import { normalizeEntry, normalizeTags, cleanTag } from './schema.js';
 import { STARTER_TAGS, canonicalLabel, categoryOptions, methodOptions, state, $, esc, uid, money, fmtDate, toast, allTags, saveSettings, sheet, closeSheet, newGroup } from './core.js';
 import { pickGroup } from './picker.js';
+import { movePayments, removeEmptyGroups, removedNote } from './groups.js';
 import { reload } from './render.js';
 import { isCatchAll, accountKeys, accountName, getRules, setRules, groupSuggestions, suggestCategory } from './importer.js';
 
@@ -45,7 +46,7 @@ export function payeesSection(entry) {
     g.n++; g.total += p.amount; g.last = p.date > g.last ? p.date : g.last;
     by.set(k, g);
   }
-  if (by.size < (isCatchAll(entry) ? 1 : 2)) return ''; // a catch-all lists even its last payee
+  if (!by.size) return ''; // even a group's only payee can be moved on
   const groups = [...by.values()].sort((a, b) => b.total - a.total);
   return `<div class="group-title">Payees (${groups.length})</div>
     <section class="card form">${groups.map(g => `
@@ -72,20 +73,15 @@ export async function choosePaymentGroup(from, paymentId) {
   const choice = await pickGroup({ title: 'Move this payment to', type: from.type, exclude: [from.id],
     suggested: p.payee ? groupSuggestions(payeeLabel(p.payee), from.type, [from.id]) : [] });
   if (!choice) return;
-  const now = new Date().toISOString();
-  const dest = choice.create ? newGroup({ name: choice.create, type: from.type, start: p.date, category: suggestCategory(choice.create, from.type) })
-    : state.entries.find(e => e.id === choice.id);
+  const dest = choice.create ? newGroup({ name: choice.create, type: from.type, start: p.date, fromImport: true,
+    category: suggestCategory(choice.create, from.type) }) : state.entries.find(e => e.id === choice.id);
   if (!dest) return;
-  // Into an entry of the other type, the amount's sign follows: money out as a refund on income, and so on
-  const amount = dest.type === from.type ? p.amount : -p.amount;
-  await db.putEntries([
-    normalizeEntry({ ...from, payments: from.payments.filter(x => x.id !== p.id), updatedAt: now }),
-    normalizeEntry({ ...dest, payments: [...(dest.payments || []), { ...p, amount, due: Bank.nearestDue(dest, p.date) }], updatedAt: now }),
-  ]);
+  await movePayments([{ p, e: from }], dest);
   await reload();
+  const removed = await removeEmptyGroups([from.id]);
   const fresh = state.entries.find(e => e.id === from.id);
-  if (fresh) openSheet(fresh, 'transactions');
-  toast(`Moved to ${dest.name}`);
+  if (fresh) openSheet(fresh, 'transactions'); else closeSheet();
+  toast(`Moved to ${dest.name}${removedNote(removed)}`);
 }
 
 /**
@@ -116,21 +112,17 @@ export async function movePayee(from, key, to) {
     dest = state.entries.find(e => e.id === to);
   }
   if (!dest) return;
-  const moved = pays.map(p => ({ ...p, payee: key, due: Bank.nearestDue(dest, p.date) }));
-  const ids = new Set(pays.map(p => p.id));
-  await db.putEntries([
-    normalizeEntry({ ...from, payments: from.payments.filter(p => !ids.has(p.id)), updatedAt: now }),
-    normalizeEntry({ ...dest, payments: [...(dest.payments || []), ...moved], updatedAt: now }),
-  ]);
+  await movePayments(pays.map(p => ({ p: { ...p, payee: key }, e: from })), dest, now);
   if (dest.frequency !== 'once') {
     setRules({ ...getRules(), [key]: dest.id });
     await saveSettings();
   }
   await reload();
+  const removed = await removeEmptyGroups([from.id]);
   const fresh = state.entries.find(e => e.id === from.id);
   if (fresh) openSheet(fresh, 'accounts'); // redraw in place, ready to move the next payee
   else closeSheet();
-  toast(`Moved ${pays.length} payment${pays.length === 1 ? '' : 's'} to ${dest.name}`); // after the redraw, or it's wiped
+  toast(`Moved ${pays.length} payment${pays.length === 1 ? '' : 's'} to ${dest.name}${removedNote(removed)}`); // after the redraw, or it's wiped
 }
 
 /** Switch the entry sheet to one of its pages (Summary, Transactions, Accounts). */
@@ -356,7 +348,8 @@ export function openSheet(entry = null, tab = 'summary') {
           <textarea name="notes" rows="3" placeholder="Account number, renewal terms…">${esc(e.notes)}</textarea></label>
       </section>
 
-      ${isNew ? '' : '<button type="button" class="btn danger-btn" data-delete>Delete group</button>'}
+      ${isNew ? '' : `<button type="button" class="btn" data-merge-group>Merge into another group…</button>
+        <button type="button" class="btn danger-btn" data-delete>Delete group</button>`}
       </div>
 
       ${isNew ? '' : `<div class="tab-panel ${tab === 'transactions' ? 'on' : ''}" data-panel="transactions" role="tabpanel">
@@ -482,6 +475,7 @@ export function openSheet(entry = null, tab = 'summary') {
       syncPaySign(row);
     }
     else if (ev.target.closest('[data-delete]')) deleteEntry(entry);
+    else if (ev.target.closest('[data-merge-group]')) mergeGroup(entry);
   });
   form.addEventListener('input', ev => { if (ev.target.name === 'payamount') syncPaySign(ev.target.closest('.pay-row')); });
   form.addEventListener('submit', ev => { ev.preventDefault(); saveForm(form, entry); });
@@ -587,6 +581,32 @@ export async function saveForm(form, existing) {
   }
   await reload();
   toast(existing ? 'Saved' : 'Added');
+}
+
+/**
+ * Merge a group into another: all its payments move there (into a group of the other type, their
+ * sign flips: money out becomes a refund on income), its payees and budget follow, and this group
+ * goes. For when the same company ended up in two groups, e.g. "Sq Woolworths" and "Woolworths".
+ */
+export async function mergeGroup(entry) {
+  const choice = await pickGroup({ title: `Merge ${entry.name} into`, type: entry.type, exclude: [entry.id], create: false,
+    suggested: groupSuggestions(entry.name, entry.type, [entry.id]) });
+  const dest = choice?.id && state.entries.find(e => e.id === choice.id);
+  if (!dest) return;
+  const pays = entry.payments || [];
+  if (!confirm(`Merge “${entry.name}” into “${dest.name}”? ${pays.length ? `Its ${pays.length === 1 ? '1 payment moves' : `${pays.length} payments move`} there, and so do its payees. ` : ''}“${entry.name}” is then removed.`)) return;
+  await movePayments(pays.map(p => ({ p, e: entry })), dest);
+  await db.deleteEntry(entry.id);
+  state.settings.payees = M.payeesOf(state.settings).map(p => (p.groupId === entry.id ? { ...p, groupId: dest.id } : p));
+  const budgets = state.settings.budgets || [];
+  const hasOwn = budgets.some(b => b.kind === 'group' && b.groupId === dest.id);
+  state.settings.budgets = budgets.flatMap(b => (b.kind === 'group' && b.groupId === entry.id
+    ? (hasOwn ? [] : [{ ...b, groupId: dest.id, label: dest.name }]) : [b]));
+  await saveSettings();
+  await reload();
+  const fresh = state.entries.find(e => e.id === dest.id);
+  if (fresh) openSheet(fresh, 'summary'); else closeSheet();
+  toast(`Merged into ${dest.name}${pays.length ? ` · ${pays.length} payment${pays.length === 1 ? '' : 's'} moved` : ''}`);
 }
 
 /**
