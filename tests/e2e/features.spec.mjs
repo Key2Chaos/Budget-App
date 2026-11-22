@@ -58,8 +58,10 @@ test.describe('payments', () => {
     await page.locator('#payments .pay-row').first().locator('[name=payamount]').fill('101.10');
     await page.locator('[data-add-payment]').click();
     await page.locator('#payments .pay-row').first().locator('[name=payamount]').fill('15');
-    await page.locator('#payments .pay-row').first().locator('[data-sign]').click();
-    await expect(page.locator('#payments .pay-row').first().locator('[data-sign]')).toHaveText('Credit');
+    await page.locator('#payments .pay-row').first().locator('[data-flip-sign]').click();       // ± makes it a credit
+    await expect(page.locator('#payments .pay-row').first().locator('[name=payamount]')).toHaveValue('-15');
+    await expect(page.locator('#payments .pay-row').first()).toHaveClass(/credit/);
+    await expect(page.locator('#payments .pay-row').first().locator('.pay-kind')).toHaveText('Credit');
     await save(page);
     await tab(page, 'entries');
     await expect(row(page, 'Water')).toContainText('−≈£98.08'); // (104.75 + 88.40 + 101.10) / 3

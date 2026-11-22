@@ -31,7 +31,8 @@ No backend, no account. All data lives on the device in IndexedDB.
     the first payment is logged. After a frequency change, earlier payments are converted to the new
     frequency, e.g. quarterly £300 becomes about £100 a month.
   - Months without a logged payment use that estimate.
-  - Refunds can be logged as **Credit**.
+  - Refunds are logged as a minus amount (type "-" or tap **±**); they show in green as **Credit**
+    (on income: **Paid back**) and are left out of the estimate.
 - **Manual payments** (cash, bank transfer): switch on *Manual payment*. They appear under **To
   pay** on the Overview with a **Mark paid** button. Missed ones show as overdue.
 - **Your share**: for split bills, set your % and only your part counts in totals. The full bill
@@ -77,8 +78,7 @@ No backend, no account. All data lives on the device in IndexedDB.
     Set a remembered row to *Skip for now* to forget it.
   - **Several files at once:** choose more than one CSV (e.g. your savings account and your card, or
     a few months of one account). Each file gets its own account, date order and sign, and is checked
-    against its own Balance column. Transfers between them are paired up, and each account's unmatched
-    spending goes to its own catch-all. A new file that covers the same dates as another of the same
+    against its own Balance column. Transfers between them are paired up. A new file that covers the same dates as another of the same
     kind is treated as a second account ("CommBank account 2"); different months are one account.
   - **Matched rows need no attention.** Several matches from one payee to the same entry share a
     row, and a long list is folded away ("✓ 40 transactions going to 12 entries, nothing to do")
@@ -111,13 +111,18 @@ No backend, no account. All data lives on the device in IndexedDB.
   - **Renaming an account** (Settings → Bank statements → Rename) is safe: transactions are still
     recognised, and entries using the old name as their payment method are updated.
   - **One row per payee.** Unmatched transactions are grouped by payee (tap the row's count to see
-    them); one choice covers them all. Give two payees the same name, or pick a new entry another payee
-    is getting (*New in this import*), to put them together.
-  - **Everything imports by default.** Matches go to their entry, payees that look recurring get an
-    entry of their own, and everything else goes to the account's catch-all entry, *Everyday
-    spending – <account>* (or *Other income – <account>* for money in). Change any row before
-    importing, or choose *Skip for now* / *Ignore*.
-  - **Sorting it out later:** open an entry with imported payments from several payees (like the
+    them); one choice covers them all. Very similar payees share a row: the same name, one name plus
+    more words ("Kmart" / "Kmart Bondi"), the same distinctive first word ("Kmart Bondi" / "Kmart
+    Sydney"), or a near-identical spelling. Short first words and payment processors don't count, so
+    "Uber Eats" and "Uber Trip", or "PayPal *Netflix" and "PayPal *Spotify", stay apart. Give two
+    payees the same name, or pick a new entry another payee is getting (*New in this import*), to put
+    them together.
+  - **Everything imports by default, each payee to its own entry.** Matches go to their entry, payees
+    that look recurring get a recurring entry, and every other payee gets an entry of its own with no
+    set schedule, named after them, which their later transactions go to as well. The account's
+    catch-all (*Everyday spending – <account>* / *Other income – <account>*) is still in the dropdown
+    if you want one. Change any row before importing, or choose *Skip for now* / *Ignore*.
+  - **Sorting it out later:** open an entry with imported payments from several payees (like a
     catch-all), go to its **Accounts** page and use **Payees → Move to…** to move all of one payee's
     payments to another entry, or into a new entry of its own. Future imports send that payee there too.
   - **Entry pages:** an existing entry opens on **Summary** (a month, last 12 months, payments,
@@ -125,18 +130,18 @@ No backend, no account. All data lives on the device in IndexedDB.
     bank account, and the payees it's made of) as separate pages. Save keeps changes from all three.
   - **New entry from any transaction:** the dropdown's *+ New entry* creates one for that payee, and
     takes their other undecided transactions with it. It becomes a recurring entry if the payee looks
-    recurring, *Variable (no set schedule)* if there are several transactions, or a one-off if
-    there's just one.
+    recurring, otherwise *Variable (no set schedule)*, even with one transaction, so their later
+    purchases have somewhere to go.
   - **Transfers between your own accounts** (paying off a card, moving money to savings) aren't
     spending or income, so they're shown under *Transfers between your accounts* and not logged.
     They're spotted from the bank's text ("PAYMENT RECEIVED, THANK YOU", "Transfer to … Savings"),
     or when another account you've imported has the same amount going the other way within 3 days.
-    If that other side was already imported into a catch-all entry (e.g. the savings statement went
-    in first), it's taken out of it. Plain "Transfer to xx1234" isn't assumed to be yours, since rent
+    If that other side was already imported as spending (e.g. the savings statement went in first),
+    it's taken out of that entry, and an entry the import added just for it goes too (*Undo last
+    import* puts it back). Plain "Transfer to xx1234" isn't assumed to be yours, since rent
     and payments to people look the same. Choosing *Transfer between my accounts* yourself remembers
     the payee.
-  - **Refunds** follow the payee's purchases: money back from a shop goes to the same entry (or
-    *Everyday spending*) as a credit, not to *Other income*. Purchases and refunds from one payee
+  - **Refunds** follow the payee's purchases: money back from a shop goes to the same entry as a credit, not to *Other income*. Purchases and refunds from one payee
     share a row.
   - **Recurring payments you haven't added**, e.g. "Disney Plus, 3 × $13.99 monthly", can be added as
     entries with one tap, past payments included.

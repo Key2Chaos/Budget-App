@@ -342,12 +342,17 @@ form.is-variable #prices .icon-btn { order: 4; flex: none; }
 /* ---------- Payments ---------- */
 .suffix { font-style: normal; color: var(--muted); flex: none; margin-left: -6px; }
 .pay-row { gap: 8px; flex-wrap: wrap; }
-.pay-note { flex: 1 0 100%; margin-top: -4px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pay-note { flex: 1 0 100%; order: 11; margin-top: -4px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pay-row input[name=paydate] { flex: 1 1 auto; text-align: left; justify-content: flex-start; }
 .pay-row input[name=paydate]::-webkit-date-and-time-value { text-align: left; }
 .pay-row input[name=payamount] { flex: 0 0 5.5em; font-weight: 600; }
-.chip.sign { padding: 3px 9px; font-size: 12px; background: var(--fill); color: var(--muted); }
-.chip.sign.credit { background: color-mix(in srgb, var(--pos) 18%, transparent); color: var(--pos); }
+.pay-kind { display: none; flex: 1 0 100%; order: 10; margin-top: -4px; font-size: 12px; font-weight: 600; color: var(--pos); }
+.pay-row.credit .pay-kind { display: block; }
+.pay-row.credit input[name=payamount] { color: var(--pos); }
+.icon-btn.small.pay-flip { color: var(--muted); font-size: 17px; font-weight: 600; }
+.income-only { display: none; }
+form.is-income .income-only { display: inline; }
+form.is-income .expense-only { display: none; }
 #payments:empty { display: none; }
 .pay-item { gap: 10px; }
 .row-main.plain { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }

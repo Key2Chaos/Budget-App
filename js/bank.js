@@ -389,6 +389,72 @@ export function suggest(txns, entries, rules = {}, names = {}) {
   });
 }
 
+// ---------- Similar payees ----------
+
+/** Payment processors and banking words: the first word says nothing about who was paid ("PAYPAL *NETFLIX"). */
+const GENERIC_FIRST = new Set(['paypal', 'square', 'sumup', 'stripe', 'zeller', 'google', 'apple', 'transfer',
+  'payment', 'direct', 'internet', 'online', 'osko', 'bpay', 'cash', 'withdrawal', 'deposit', 'interest']);
+const words = name => String(name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+
+function editDistance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * Whether two payee names are very likely the same business: the same name, one is the other plus
+ * more words ("Kmart" / "Kmart Bondi"), the same distinctive first word ("Kmart Bondi" / "Kmart
+ * Sydney" — branches in different towns), or a near-identical spelling ("Woolworth" / "Woolworths").
+ * Short first words aren't enough on their own: "Uber Eats" and "Uber Trip" stay apart.
+ */
+export function similarPayees(nameA, nameB) {
+  const a = words(nameA), b = words(nameB);
+  if (!a.length || !b.length) return false;
+  const sa = a.join(' '), sb = b.join(' ');
+  if (sa === sb) return true;
+  if (a[0] !== b[0]) {
+    const n = Math.max(sa.length, sb.length);
+    return n >= 6 && editDistance(sa, sb) <= Math.max(1, Math.floor(n * 0.12));
+  }
+  if (GENERIC_FIRST.has(a[0])) return sa.startsWith(sb) || sb.startsWith(sa) ? Math.min(a.length, b.length) > 1 : false;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (short.every((w, i) => long[i] === w)) return true;
+  return a[0].length >= 5;
+}
+
+/**
+ * Put very similar payees together. payees: [{ key, name, count }] → Map key → the key of the
+ * payee that leads its group (the one with the most transactions).
+ */
+export function clusterPayees(payees) {
+  const sorted = [...payees].sort((x, y) => y.count - x.count || x.key.localeCompare(y.key));
+  const leads = [];
+  const out = new Map();
+  for (const p of sorted) {
+    const lead = leads.find(l => similarPayees(l.name, p.name));
+    if (lead) out.set(p.key, lead.key);
+    else { leads.push(p); out.set(p.key, p.key); }
+  }
+  return out;
+}
+
+/** A name for a group of payees: the words their names start with in common ("Kmart Bondi", "Kmart Sydney" → "Kmart"), else the first. */
+export function commonName(names) {
+  const lists = names.map(n => String(n).split(/\s+/).filter(Boolean));
+  const out = [];
+  for (let i = 0; i < lists[0].length; i++) {
+    const w = lists[0][i].toLowerCase();
+    if (lists.every(l => l[i]?.toLowerCase() === w)) out.push(lists[0][i]);
+    else break;
+  }
+  return out.join(' ') || names[0];
+}
+
 // ---------- Payments already logged by hand ----------
 
 /** How close a hand-logged payment must be to a bank transaction to be treated as the same one. */
