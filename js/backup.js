@@ -3,6 +3,7 @@ import { db } from './db.js';
 import * as C from './calc.js';
 import * as R from './reports.js';
 import * as Bank from './bank.js';
+import * as M from './model.js';
 import { migrateBackup, buildBackup, normalizeEntry } from './schema.js';
 import { METHODS, FORECAST_MONTHS, state, uid, fmtCache, toast, saveSettings, sheet } from './core.js';
 import { reload, render } from './render.js';
@@ -50,8 +51,9 @@ export async function exportCSV() {
   const start = new Date(now.getFullYear(), now.getMonth() - 23, 1);
   const files = [
     ['budget-entries', R.entriesRows(state.entries, today)],
-    ['budget-payments', R.paymentsRows(state.entries)],
+    ['budget-payments', R.paymentsRows(state.entries, state.settings)],
     ['budget-monthly-totals', R.monthlyRows(state.entries, start.getFullYear(), start.getMonth(), 24 + FORECAST_MONTHS)],
+    ...((state.settings.payees || []).length ? [['budget-payees', R.payeesRows(state.entries, state.settings)]] : []),
   ].map(([name, rows]) => new File([R.toCSV(rows)], `${name}-${today}.csv`, { type: 'text/csv' }));
 
   const downloadAll = () => files.forEach((f, i) => setTimeout(() => {
@@ -73,17 +75,24 @@ export async function importBackup(file) {
     let data;
     try { data = JSON.parse(await file.text()); } catch { throw new Error('The file isn’t valid JSON.'); }
     const { entries: valid, settings, skipped } = migrateBackup(data);
-    const skipNote = skipped ? `\n\n${skipped} damaged entr${skipped === 1 ? 'y' : 'ies'} will be skipped.` : '';
-    if (!confirm(`Import ${valid.length} entries? Entries already on this device with the same ID will be replaced.${skipNote}`)) return;
+    const skipNote = skipped ? `\n\n${skipped} damaged group${skipped === 1 ? '' : 's'} will be skipped.` : '';
+    if (!confirm(`Import ${valid.length} groups? Groups already on this device with the same ID will be replaced.${skipNote}`)) return;
     await db.putEntries(valid);
     if (settings.currency && !state.entries.length) { state.settings.currency = settings.currency; fmtCache.clear(); }
     // Add any budgets from the backup that this device doesn't have yet
     const have = new Set((state.settings.budgets || []).map(b => `${b.kind}:${b.label.toLowerCase()}`));
     const extra = (settings.budgets || []).filter(b => !have.has(`${b.kind}:${b.label.toLowerCase()}`));
     if (extra.length) state.settings.budgets = [...(state.settings.budgets || []), ...extra];
+    // …and accounts and payees it doesn't know yet (a payee already here keeps what you set on this device)
+    const accs = (settings.accounts || []).filter(a => !M.accountByKey(state.settings, a.key));
+    if (accs.length) state.settings.accounts = [...M.accountsOf(state.settings), ...accs];
+    const known = new Set(M.payeesOf(state.settings).flatMap(p => p.keys));
+    const ids = new Set(M.payeesOf(state.settings).map(p => p.id));
+    const pys = (settings.payees || []).filter(p => !p.keys.some(k => known.has(k))).map(p => (ids.has(p.id) ? { ...p, id: uid() } : p));
+    if (pys.length) state.settings.payees = [...M.payeesOf(state.settings), ...pys];
     await saveSettings();
     await reload();
-    toast(`Imported ${valid.length} entries`);
+    toast(`Imported ${valid.length} groups`);
   } catch (e) {
     alert('Import failed: ' + e.message);
   }

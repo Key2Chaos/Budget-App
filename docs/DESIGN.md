@@ -1,7 +1,8 @@
 # Design: Accounts, Payees, Groups, Categories and Tags
 
-Status: **agreed** (22 Nov 2026), proposals in section 6 accepted as written. The work goes: code
-cleanup → build → push. All examples are made up.
+Status: **built** (23 Nov 2026, format v5). The design was agreed on 22 Nov 2026, with the
+proposals in section 6 accepted as written. Section 8 lists where the build differs from this
+design and what isn't built yet. All examples are made up.
 
 ## Why
 
@@ -189,3 +190,37 @@ Agreed 22 Nov 2026: each proposal below is the plan.
 - move a payee, and merge two payees
 - delete a group, and its payees become *Ungrouped*
 - all of the above in the Australia/Sydney run
+
+## 8. As built (23 Nov 2026)
+
+The model, screens and help above are built in format v5. The code is in `js/model.js` (accounts
+and payees), `js/picker.js`, `js/sheet-accounts.js` and `js/sheet-payees.js`, plus changes to the
+importer and the group (entry) sheet.
+
+**Where the build differs from the design, and why**
+
+- **Accounts are keyed by the name first imported under**, as `{ key, name, kind, balance }`. The
+  design had an id plus `importKeys`. The key is already part of every transaction id and of
+  `payment.account`, so no payment had to be rewritten.
+- **Payees keep their bank keys, and payments keep `payee` as a key**, not a `payeeId`. A payee is
+  found from any of its keys. Migrated payees get the id `pk:<key>`; new ones get a random id.
+- **The importer still works with key → group maps.** `rulesMap` / `applyRules` (and the same for
+  names) translate between those maps and payee records. This kept the tested matching, undo and
+  transfer logic unchanged.
+- **Payment method:** imported payments get a stored `method`, guessed from the bank text or the
+  account type. Payments logged by hand don't store one. They show the group's method, so changing
+  the group's default updates them.
+- **One payment in another group** is done by *moving* that payment (**Move…** on its row), not with
+  a `groupOverride` field. The payee's group doesn't change.
+- **Group budgets** store the group's id as well as its name, so renaming the group keeps the budget.
+
+**Not built yet** (also in BACKLOG):
+
+- **Splits** (one transaction across groups).
+- **Choosing a payee or account for a payment logged by hand.**
+- **Archiving** groups and accounts.
+- **"Where it goes" by payee, account or method.** Only by Group is new. Breakdowns by method and
+  account are on each group's Summary, and money in and out per account is on the Accounts sheet.
+- **"Balance now" as the total of chosen accounts.** Each account stores its own latest balance;
+  *Balance now* still works as before.
+

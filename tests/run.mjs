@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import * as C from '../js/calc.js';
 import * as R from '../js/reports.js';
 import * as B from '../js/bank.js';
+import * as M from '../js/model.js';
 import { SCHEMA_VERSION, migrateBackup, buildBackup, normalizeEntry, normalizeTags, cleanTag } from '../js/schema.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -616,9 +617,12 @@ test('import memory (rules, ignored, accounts) survives a backup round trip', ()
   const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
     settings: { payeeRules: { 'ORIGIN ENERGY': 'abc', bad: 5 }, ignoredTxns: ['t1', 't1', 7, { id: 't2', date: '2026-11-01' }, { id: 't3', date: 'x' }, { id: 't2' }], bankAccounts: [' CommBank  card '],
       transfers: [{ id: 'x1', account: 'CommBank Card', date: '2026-11-01', amount: 250 }, { id: 'x1', account: 'a', date: '2026-11-01', amount: 1 }, { id: 'x2', date: 'bad' }] } });
-  assert.deepEqual(settings.payeeRules, { 'ORIGIN ENERGY': 'abc' });
+  // since v5, remembered payees and accounts are records of their own
+  assert.deepEqual(settings.payees, [{ id: 'pk:ORIGIN ENERGY', name: null, keys: ['ORIGIN ENERGY'], groupId: 'abc', rule: null }]);
   assert.deepEqual(settings.ignoredTxns, ['t1', { id: 't2', date: '2026-11-01' }, 't3'], 'ids, or { id, date } (newer)');
-  assert.deepEqual(settings.bankAccounts, ['CommBank card']);
+  assert.deepEqual(settings.accounts, [{ key: 'CommBank card', name: 'CommBank card', kind: 'credit' }]);
+  assert.equal(settings.payeeRules, undefined);
+  assert.equal(settings.bankAccounts, undefined);
   assert.deepEqual(settings.transfers, [{ id: 'x1', account: 'commbank card', date: '2026-11-01', amount: 250 }]);
 });
 
@@ -674,13 +678,14 @@ test('your own payee names: shown, used for matching and for new entries, kept i
   assert.equal(B.findRecurring(B.suggest(txns, [], {}, names))[0].name, 'Home internet');
   const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
     settings: { payeeNames: { '123456 AUS': '  Home   internet ', bad: 5, empty: ' ' } } });
-  assert.deepEqual(settings.payeeNames, { '123456 AUS': 'Home internet' });
+  assert.deepEqual(M.namesMap(settings), { '123456 AUS': 'Home internet' });
 });
 
 test('renamed import accounts survive a backup round trip', () => {
   const { settings } = migrateBackup({ app: 'budget-pwa', version: 3, entries: [],
     settings: { bankAccounts: ['CommBank credit card'], accountNames: { 'CommBank Credit Card': ' Everyday  card ', x: '' } } });
-  assert.deepEqual(settings.accountNames, { 'commbank credit card': 'Everyday card' });
+  assert.equal(M.accountName(settings, 'commbank credit card'), 'Everyday card');
+  assert.equal(M.findAccount(settings, 'everyday card'), 'CommBank credit card');
 });
 
 test('a payment logged by hand is updated by the bank copy, not duplicated', () => {
@@ -767,4 +772,133 @@ test('similar payees: same shop in other towns share an entry; different service
   assert.equal(c.get('KMART SYDNEY'), 'KMART SYDNEY');
   assert.notEqual(c.get('UBER EATS'), c.get('UBER TRIP'));
   assert.equal(B.commonName(['Kmart Sydney', 'Kmart Bondi']), 'Kmart');
+});
+
+// ---------- Accounts, payees and groups (format v5) ----------
+
+test('v4 → v5: accounts and payees become records; imported payments get a method', () => {
+  const { entries, settings } = migrateBackup(load('v4-2026-11-bank-import.json'));
+  assert.deepEqual(settings.accounts, [
+    { key: 'CommBank account', name: 'CommBank account', kind: 'transaction' },
+    { key: 'CommBank credit card', name: 'Everyday card', kind: 'credit' },
+  ]);
+  const internet = 'f4000000-0000-4000-8000-000000000001';
+  const byKey = k => M.payeeByKey(settings, k);
+  assert.equal(byKey('SUPERLOOP').groupId, internet);
+  assert.equal(byKey('SUPERLOOP').name, 'Home internet');
+  assert.equal(byKey('SUPERLOOP LIMITED').groupId, internet, 'each remembered key keeps its group');
+  assert.equal(byKey('CAFE EXAMPLE').rule, 'ignore');
+  assert.equal(byKey('PAYMENT RECEIVED THANK').rule, 'transfer');
+  assert.equal(byKey('BAKERY EXAMPLE').name, 'Corner bakery');
+  assert.equal(byKey('BAKERY EXAMPLE').groupId, null, 'named but never remembered: ungrouped');
+  assert.ok(byKey(B.payeeKey('GROCER EXAMPLE 1143 SYDNEY')), 'a payee seen only on an older payment (no payee field) gets a record');
+  // The importer's maps come back out the same
+  assert.deepEqual(M.rulesMap(settings), {
+    SUPERLOOP: internet, 'SUPERLOOP LIMITED': internet, 'CAFE EXAMPLE': 'ignore', 'PAYMENT RECEIVED THANK': 'transfer' });
+  // Methods
+  const pays = Object.fromEntries(entries.flatMap(e => e.payments).map(p => [p.id, p]));
+  assert.equal(pays.h1.method, undefined, 'hand-logged: uses the entry\'s method');
+  assert.equal(pays.i1.method, 'Direct debit');
+  assert.equal(pays.i2.method, 'Credit card', 'a card account, nothing in the text');
+  assert.equal(pays.i3.method, 'Credit card');
+  const catchAll = entries.find(e => e.catchAll);
+  assert.equal(catchAll.method, 'Credit card', 'an imported entry stops using the account name as its method');
+  assert.equal(entries.find(e => e.id === internet).method, 'Direct debit', 'methods you chose are kept');
+  // Nothing else in the import memory is lost
+  assert.deepEqual(settings.ignoredTxns, [{ id: 'tign1', date: '2026-10-04' }]);
+  assert.equal(settings.transfers.length, 1);
+});
+
+test('payee rules: one group per payee, new payees for new keys, cleared keys keep the payee', () => {
+  let n = 0;
+  const id = () => `n${++n}`;
+  const s = { payees: [{ id: 'a', name: null, keys: ['K1', 'K2'], groupId: 'g1', rule: null }] };
+  // the importer changes one key: the whole payee moves
+  let r = M.applyRules(s, { K1: 'g1', K2: 'g2', K3: 'ignore' }, id);
+  assert.deepEqual(r.payees.map(p => [p.id, p.keys, p.groupId, p.rule]), [['a', ['K1', 'K2'], 'g2', null], ['n1', ['K3'], null, 'ignore']]);
+  assert.deepEqual(r.added, ['n1']);
+  // forgetting: the payee stays, ungrouped
+  r = M.applyRules({ payees: r.payees }, {}, id);
+  assert.deepEqual(r.payees.map(p => [p.id, p.groupId, p.rule]), [['a', null, null], ['n1', null, null]]);
+  // names
+  const named = M.applyNames({ payees: r.payees }, { K2: 'Telco', K9: 'Other' }, id);
+  assert.equal(named.payees[0].name, 'Telco');
+  assert.deepEqual(M.namesMap({ payees: named.payees }), { K1: 'Telco', K2: 'Telco', K9: 'Other' });
+});
+
+test('merging payees keeps both spellings; group and rule exclude each other', () => {
+  const s = { payees: [
+    { id: 'a', name: 'Telco', keys: ['TELCO BPAY'], groupId: null, rule: null },
+    { id: 'b', name: null, keys: ['TELCO CORP'], groupId: 'g', rule: null },
+  ] };
+  const merged = M.mergePayees(s, 'a', 'b');
+  assert.deepEqual(merged, [{ id: 'a', name: 'Telco', keys: ['TELCO BPAY', 'TELCO CORP'], groupId: 'g', rule: null }]);
+  const ignored = M.updatePayee({ payees: merged }, 'a', { rule: 'ignore' });
+  assert.deepEqual([ignored[0].rule, ignored[0].groupId], ['ignore', null]);
+  const grouped = M.updatePayee({ payees: ignored }, 'a', { groupId: 'h' });
+  assert.deepEqual([grouped[0].rule, grouped[0].groupId], [null, 'h']);
+  assert.deepEqual(M.ungroup({ payees: grouped }, 'h')[0].groupId, null);
+  // stored data is tidied: no key in two payees, no empty payees
+  assert.deepEqual(M.normalizePayees([{ id: 'x', keys: ['A'] }, { id: 'y', keys: ['A'] }, { id: 'z', keys: ['B'], rule: 'transfer', groupId: 'g' }]),
+    [{ id: 'x', keys: ['A'], name: null, rule: null, groupId: null }, { id: 'z', keys: ['B'], name: null, rule: 'transfer', groupId: null }]);
+});
+
+test('accounts: added newest first, renamed by display name, kinds guessed', () => {
+  let s = { accounts: M.withAccounts({}, ['CommBank account'], B.guessAccountKind) };
+  s = { accounts: M.withAccounts(s, ['CommBank credit card', 'commbank account'], B.guessAccountKind) };
+  assert.deepEqual(s.accounts.map(a => [a.key, a.kind]), [['CommBank credit card', 'credit'], ['CommBank account', 'transaction']]);
+  s = { accounts: M.updateAccount(s, 'commbank CREDIT card', { name: 'Everyday card' }) };
+  assert.equal(M.accountName(s, 'CommBank credit card'), 'Everyday card');
+  assert.equal(M.findAccount(s, 'EVERYDAY CARD'), 'CommBank credit card');
+  assert.equal(M.accountName(s, 'Unknown'), 'Unknown');
+  assert.equal(B.guessAccountKind('ING Savings Maximiser'), 'savings');
+});
+
+test('payment method from the bank text', () => {
+  assert.equal(B.guessMethod('BPAY TELCO 1234567'), 'BPAY');
+  assert.equal(B.guessMethod('Direct Debit 123456 SUPERLOOP'), 'Direct debit');
+  assert.equal(B.guessMethod('Fast Transfer From J CITIZEN Osko'), 'PayID');
+  assert.equal(B.guessMethod('NETFLIX.COM Melbourne AU Card xx1234 Value Date: 01/11/2026'), 'Card');
+  assert.equal(B.guessMethod('SUPERLOOP LIMITED        BRISBANE    AUS'), 'Card', 'card statement layout');
+  assert.equal(B.guessMethod('Transfer to xx9876 CommBank app'), 'Bank transfer');
+  assert.equal(B.guessMethod('ATM WITHDRAWAL SYDNEY'), 'Cash');
+  assert.equal(B.guessMethod('SOMETHING', 'credit'), 'Credit card');
+  assert.equal(B.guessMethod('SOMETHING'), '');
+});
+
+test('a payee like one already in a group is suggested for that group', () => {
+  const txns = B.withIds([
+    { date: '2026-11-03', amount: -80, description: 'TELSTRA BPAY 1234567' },
+    { date: '2026-11-04', amount: -30, description: 'UBER TRIP SYDNEY' },
+    { date: '2026-11-05', amount: 12, description: 'TELSTRA REFUND' },
+  ], 'Card');
+  const known = [
+    { key: 'TELSTRA CORP', name: 'Telstra Corp', groupId: 'tel', type: 'expense' },
+    { key: 'UBER EATS', name: 'Uber Eats', groupId: 'food', type: 'expense' },
+  ];
+  const out = B.suggestSimilar(B.suggest(txns, []), known);
+  assert.deepEqual(out.map(t => [t.action, t.why ?? null]), [['tel', 'similar'], ['', null], ['tel', 'similar']],
+    'same company, different form; Uber Trip is not Uber Eats; a refund follows the purchases');
+  assert.equal(out[0].like, 'Telstra Corp');
+  // a remembered choice wins
+  const ruled = B.suggestSimilar(B.suggest(txns, [], { [txns[0].payee]: 'ignore' }), known);
+  assert.equal(ruled[0].action, 'ignore');
+});
+
+test('budgets by group follow the group, not its name; exports show payee, account and method', () => {
+  const { entries, settings } = migrateBackup(load('v5-2026-11-accounts-payees.json'));
+  const internet = entries.find(e => e.name === 'Home internet');
+  const budget = settings.budgets[0];
+  assert.equal(R.inBudget(internet, budget), true);
+  assert.equal(R.inBudget({ ...internet, name: 'Renamed' }, budget), true, 'renaming the group keeps its budget');
+  assert.equal(R.inBudget({ ...internet, id: 'other' }, budget), false);
+  const rows = R.paymentsRows(entries, settings);
+  assert.deepEqual(rows[0].slice(-3), ['Payee', 'Account', 'Payment method']);
+  const i2 = rows.find(r => r[7].startsWith('SUPERLOOP LIMITED'));
+  assert.deepEqual(i2.slice(-3), ['Home internet', 'Everyday card', 'Credit card'], 'merged payee uses its name; renamed account');
+  const hand = rows.find(r => r[0] === '2026-08-09');
+  assert.deepEqual(hand.slice(-3), ['', '', 'Direct debit'], 'logged by hand: the group\'s method');
+  const payees = R.payeesRows(entries, settings);
+  assert.deepEqual(payees.find(r => r[0] === 'Home internet'), ['Home internet', 'Home internet', 'SUPERLOOP | SUPERLOOP LIMITED', 2, 178]);
+  assert.equal(payees.find(r => r[0] === 'Cafe Example')[1], 'Always ignored');
 });

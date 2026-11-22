@@ -3,10 +3,12 @@ import { db } from './db.js';
 import * as C from './calc.js';
 import * as R from './reports.js';
 import * as Bank from './bank.js';
+import * as M from './model.js';
 import { normalizeEntry, normalizeTags, cleanTag } from './schema.js';
-import { STARTER_TAGS, canonicalLabel, categoryOptions, methodOptions, state, $, esc, uid, money, fmtDate, toast, allTags, saveSettings, sheet, closeSheet } from './core.js';
+import { STARTER_TAGS, canonicalLabel, categoryOptions, methodOptions, state, $, esc, uid, money, fmtDate, toast, allTags, saveSettings, sheet, closeSheet, newGroup } from './core.js';
+import { pickGroup } from './picker.js';
 import { reload } from './render.js';
-import { isCatchAll, accountKeys, accountName } from './importer.js';
+import { isCatchAll, accountKeys, accountName, getRules, setRules, groupSuggestions, suggestCategory } from './importer.js';
 
 /** One row of an entry's history: date (or "From the start"), amount and how often. */
 export function priceRow(p, first) {
@@ -28,7 +30,7 @@ export function priceRow(p, first) {
 
 /** Which payee an imported payment came from (older payments: worked out from the bank's text in the note). */
 export const payeeOfPayment = p => (p.source ? p.payee || Bank.payeeKey((p.note || '').split(' · ').at(-1)) : null);
-export const payeeLabel = key => state.settings.payeeNames?.[key] || Bank.payeeName(key);
+export const payeeLabel = key => M.keyTitle(state.settings, key);
 
 /**
  * "Payees" on an entry that has imported payments from more than one payee (e.g. the catch-all
@@ -45,29 +47,61 @@ export function payeesSection(entry) {
   }
   if (by.size < (isCatchAll(entry) ? 1 : 2)) return ''; // a catch-all lists even its last payee
   const groups = [...by.values()].sort((a, b) => b.total - a.total);
-  const targets = state.entries.filter(e => e.type === entry.type && e.id !== entry.id && !isCatchAll(e))
-    .sort((a, b) => a.name.localeCompare(b.name));
   return `<div class="group-title">Payees (${groups.length})</div>
     <section class="card form">${groups.map(g => `
-      <label class="field payee-row"><span>${esc(payeeLabel(g.key))}<br>
+      <div class="field payee-row"><span>${esc(payeeLabel(g.key))}<br>
         <span class="muted small-text">${g.n} payment${g.n === 1 ? "" : "s"} · ${money(g.total)} · last ${esc(fmtDate(g.last))}</span></span>
-        <select data-move-payee="${esc(g.key)}" aria-label="Move ${esc(payeeLabel(g.key))} to">
-          <option value="" selected>Move to…</option>
-          <option value="new">+ New entry: ${esc(payeeLabel(g.key))}</option>
-          ${targets.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('')}
-        </select></label>`).join('')}
+        <button type="button" class="btn small" data-move-payee="${esc(g.key)}" aria-label="Move ${esc(payeeLabel(g.key))} to another group">Move to…</button></div>`).join('')}
     </section>
-    <p class="fine pad-x">Move a payee's payments to another entry, or into an entry of its own. Future imports send that
+    <p class="fine pad-x">Move a payee's payments to another group, or type a name for a new one. Future imports send that
       payee there too.</p>`;
 }
 
-/** Move all of one payee's imported payments from an entry to another (or a new) entry. */
+/** Choose where one payee's payments in an entry go, with the picker. */
+export async function choosePayeeGroup(from, key) {
+  const name = payeeLabel(key);
+  const choice = await pickGroup({ title: `Move ${name} to`, type: from.type, exclude: [from.id], name,
+    suggested: groupSuggestions(name, from.type, [from.id]) });
+  if (choice) await movePayee(from, key, choice.create ? { create: choice.create } : choice.id);
+}
+
+/** Choose another group for one payment (just this one: the payee's other payments stay). */
+export async function choosePaymentGroup(from, paymentId) {
+  const p = (from.payments || []).find(x => x.id === paymentId);
+  if (!p) return;
+  const choice = await pickGroup({ title: 'Move this payment to', type: from.type, exclude: [from.id],
+    suggested: p.payee ? groupSuggestions(payeeLabel(p.payee), from.type, [from.id]) : [] });
+  if (!choice) return;
+  const now = new Date().toISOString();
+  const dest = choice.create ? newGroup({ name: choice.create, type: from.type, start: p.date, category: suggestCategory(choice.create, from.type) })
+    : state.entries.find(e => e.id === choice.id);
+  if (!dest) return;
+  // Into an entry of the other type, the amount's sign follows: money out as a refund on income, and so on
+  const amount = dest.type === from.type ? p.amount : -p.amount;
+  await db.putEntries([
+    normalizeEntry({ ...from, payments: from.payments.filter(x => x.id !== p.id), updatedAt: now }),
+    normalizeEntry({ ...dest, payments: [...(dest.payments || []), { ...p, amount, due: Bank.nearestDue(dest, p.date) }], updatedAt: now }),
+  ]);
+  await reload();
+  const fresh = state.entries.find(e => e.id === from.id);
+  if (fresh) openSheet(fresh, 'transactions');
+  toast(`Moved to ${dest.name}`);
+}
+
+/**
+ * Move all of one payee's imported payments from an entry to another entry: an entry id, 'new' (an
+ * entry of its own, named after the payee), or { create: name } (a new group with that name).
+ */
 export async function movePayee(from, key, to) {
   const pays = (from.payments || []).filter(p => payeeOfPayment(p) === key);
   if (!pays.length) return;
   const now = new Date().toISOString();
   let dest;
-  if (to === 'new') {
+  if (to?.create) {
+    const start = pays.reduce((d, p) => (p.date < d ? p.date : d), pays[0].date);
+    dest = newGroup({ name: to.create, type: from.type, start, method: from.method, fromImport: true,
+      category: suggestCategory(to.create, from.type), notes: `Moved out of ${from.name}` });
+  } else if (to === 'new') {
     const sorted = [...pays].sort((a, b) => a.date.localeCompare(b.date));
     const one = pays.length === 1;
     const frequency = one ? 'once' : 'irregular';
@@ -89,7 +123,7 @@ export async function movePayee(from, key, to) {
     normalizeEntry({ ...dest, payments: [...(dest.payments || []), ...moved], updatedAt: now }),
   ]);
   if (dest.frequency !== 'once') {
-    state.settings.payeeRules = { ...(state.settings.payeeRules || {}), [key]: dest.id };
+    setRules({ ...getRules(), [key]: dest.id });
     await saveSettings();
   }
   await reload();
@@ -108,6 +142,19 @@ export function showTab(form, tab) {
   }
   for (const p of form.querySelectorAll('.tab-panel')) p.classList.toggle('on', p.dataset.panel === tab);
   sheet.scrollTop = 0;
+}
+
+/**
+ * One line of a group's Summary: its payments in the last 12 months totalled by something (how
+ * they were paid, or which account), e.g. "Paid by  BPAY $240 · Card $55". Hidden when there's only one.
+ */
+function breakdownLine(label, pays, keyOf) {
+  const yearAgo = C.addDaysISO(C.todayISO(), -365);
+  const by = new Map();
+  for (const p of pays) if (p.date > yearAgo) by.set(keyOf(p), (by.get(keyOf(p)) || 0) + p.amount);
+  if (by.size < 2) return '';
+  return `<div class="sum-break"><span class="muted">${label}</span> ${[...by].sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<span class="sum-part">${esc(k)} <strong>${money(v)}</strong></span>`).join(' · ')}</div>`;
 }
 
 /** The figures at the top of an entry's Summary page. */
@@ -129,6 +176,8 @@ export function summaryCard(entry) {
       ${stat('Payments', `${pays.length}${pays.length ? ` · ${money(total)}` : ''}`)}
       ${stat(next ? 'Next due' : 'Last payment', esc(next ? fmtDate(next) : last ? fmtDate(last) : '—'))}
     </div>
+    ${breakdownLine('Paid by', pays, p => p.method || (p.source ? '' : entry.method) || 'Not recorded')}
+    ${accounts.size ? breakdownLine('From', pays, p => { const a = accountOfPayment(p, entry); return !a ? 'By hand' : a === 'unknown' ? 'Imported' : accountName(a); }) : ''}
     ${pays.length || accounts.size ? `<div class="sum-links">
       ${pays.length ? `<button type="button" class="link" data-page="transactions">See ${pays.length} transaction${pays.length === 1 ? '' : 's'} ›</button>` : ''}
       ${accounts.size ? `<button type="button" class="link" data-page="accounts">${accounts.size} account${accounts.size === 1 ? '' : 's'} ›</button>` : ''}
@@ -144,7 +193,7 @@ export function accountOfPayment(p, entry) {
   if (!p.source) return null;
   const key = acc => accountKeys().find(k => k.toLowerCase() === String(acc).toLowerCase()) || acc;
   if (p.account) return key(p.account);
-  if (entry?.catchAll) return key(entry.catchAll.slice(0, entry.catchAll.lastIndexOf('|')));
+  if (entry?.catchAll && !entry.catchAll.startsWith('ungrouped|')) return key(entry.catchAll.slice(0, entry.catchAll.lastIndexOf('|')));
   const b = (state.settings.importLog || []).find(x => x.id === p.batch);
   const accs = b ? b.accounts || [b.account] : [];
   return accs.length === 1 ? key(accs[0]) : 'unknown';
@@ -195,7 +244,8 @@ export function payRow(p, type = 'expense') {
     <input type="hidden" name="paydue" value="${esc(p.due || '')}">
     <input type="hidden" name="payid" value="${esc(p.id || '')}">
     <button type="button" class="icon-btn small" data-remove-payment aria-label="Remove payment">−</button>
-    ${p.note ? `<div class="pay-note">${esc(p.note)}</div>` : ''}
+    ${p.note || p.id ? `<div class="pay-note"><span class="pay-note-text">${p.note ? esc(p.note) : ''}</span>${p.id && p.date ? `<button type="button" class="link small-link pay-move"
+      data-move-payment="${esc(p.id)}" aria-label="Move this payment to another group">Move…</button>` : ''}</div>` : ''}
   </div>`;
 }
 
@@ -209,11 +259,11 @@ export function openSheet(entry = null, tab = 'summary') {
   <form id="entryForm" class="${isNew ? '' : 'tabbed'}" novalidate>
     <div class="sheet-head">
       <button type="button" class="link" data-close>Cancel</button>
-      <h2 tabindex="-1" autofocus>${isNew ? 'New entry' : 'Edit entry'}</h2>
+      <h2 tabindex="-1" autofocus>${isNew ? 'New group' : 'Edit group'}</h2>
       <button type="submit" class="link strong">Save</button>
     </div>
     <div class="sheet-body">
-      ${isNew ? '' : `<div class="seg sheet-tabs" role="tablist" aria-label="Entry pages">
+      ${isNew ? '' : `<div class="seg sheet-tabs" role="tablist" aria-label="Group pages">
         ${[['summary', 'Summary'], ['transactions', 'Transactions'], ['accounts', 'Accounts']]
           .map(([k, label]) => `<button type="button" role="tab" data-page="${k}" aria-selected="${k === tab}" class="${k === tab ? 'on' : ''}">${label}</button>`).join('')}
       </div>`}
@@ -306,7 +356,7 @@ export function openSheet(entry = null, tab = 'summary') {
           <textarea name="notes" rows="3" placeholder="Account number, renewal terms…">${esc(e.notes)}</textarea></label>
       </section>
 
-      ${isNew ? '' : '<button type="button" class="btn danger-btn" data-delete>Delete entry</button>'}
+      ${isNew ? '' : '<button type="button" class="btn danger-btn" data-delete>Delete group</button>'}
       </div>
 
       ${isNew ? '' : `<div class="tab-panel ${tab === 'transactions' ? 'on' : ''}" data-panel="transactions" role="tabpanel">
@@ -435,9 +485,11 @@ export function openSheet(entry = null, tab = 'summary') {
   });
   form.addEventListener('input', ev => { if (ev.target.name === 'payamount') syncPaySign(ev.target.closest('.pay-row')); });
   form.addEventListener('submit', ev => { ev.preventDefault(); saveForm(form, entry); });
-  form.addEventListener('change', ev => {
-    const s = ev.target.closest('select[data-move-payee]');
-    if (s && s.value) movePayee(entry, s.dataset.movePayee, s.value);
+  form.addEventListener('click', ev => {
+    const mp = ev.target.closest('[data-move-payee]');
+    if (mp) choosePayeeGroup(entry, mp.dataset.movePayee);
+    const mv = ev.target.closest('[data-move-payment]');
+    if (mv) choosePaymentGroup(entry, mv.dataset.movePayment);
   });
 
   document.body.classList.add('modal-open');
@@ -537,10 +589,33 @@ export async function saveForm(form, existing) {
   toast(existing ? 'Saved' : 'Added');
 }
 
+/**
+ * Delete a group. Payments you logged by hand go with it. Imported ones move to "Ungrouped
+ * spending" (or income), so they still count and aren't imported again, and its payees become
+ * ungrouped: move them on from Settings → Payees, or from Ungrouped's Accounts page.
+ */
 export async function deleteEntry(entry) {
-  if (!confirm(`Delete “${entry.name}”? This can’t be undone.`)) return;
+  const imported = (entry.payments || []).filter(p => p.source);
+  const isUngrouped = entry.catchAll?.startsWith('ungrouped|');
+  const note = imported.length && !isUngrouped
+    ? ` Its ${imported.length} imported payment${imported.length === 1 ? '' : 's'} will move to ${ungroupedName(entry.type)}.` : '';
+  if (!confirm(`Delete “${entry.name}”?${note} This can’t be undone.`)) return;
+  const now = new Date().toISOString();
+  if (imported.length && !isUngrouped) {
+    const key = `ungrouped|${entry.type}`;
+    const dest = state.entries.find(e => e.catchAll === key) || newGroup({ name: ungroupedName(entry.type), type: entry.type,
+      start: imported.reduce((d, p) => (p.date < d ? p.date : d), imported[0].date), catchAll: key, fromImport: true,
+      notes: 'Imported payments from groups you deleted. Open its Accounts page to move a payee into a group.' });
+    const start = imported.reduce((d, p) => (p.date < d ? p.date : d), dest.startDate);
+    await db.putEntry(normalizeEntry({ ...dest, startDate: start, prices: [{ ...dest.prices[0], from: start }],
+      payments: [...(dest.payments || []), ...imported.map(p => ({ ...p, due: null }))], updatedAt: now }));
+  }
   await db.deleteEntry(entry.id);
+  state.settings.payees = M.ungroup(state.settings, entry.id);
+  state.settings.budgets = (state.settings.budgets || []).filter(b => !(b.kind === 'group' && b.groupId === entry.id));
+  await saveSettings();
   closeSheet();
   await reload();
-  toast('Deleted');
+  toast(note ? `Deleted · ${imported.length} payment${imported.length === 1 ? '' : 's'} moved to ${ungroupedName(entry.type)}` : 'Deleted');
 }
+const ungroupedName = type => (type === 'income' ? 'Ungrouped income' : 'Ungrouped spending');

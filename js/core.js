@@ -3,7 +3,7 @@
 import { db } from './db.js';
 import * as C from './calc.js';
 import * as Bank from './bank.js';
-import { cleanLabel } from './schema.js';
+import { cleanLabel, normalizeEntry } from './schema.js';
 
 // ---------- Constants ----------
 export const CATEGORIES = {
@@ -27,7 +27,7 @@ export const METHODS = [
 export const localDay = ts => C.iso(new Date(ts));
 export const CURRENCIES = ['GBP', 'USD', 'EUR', 'AUD', 'CAD', 'NZD', 'CHF', 'SEK', 'NOK', 'DKK', 'JPY', 'INR', 'SGD', 'ZAR'];
 export const FORECAST_MONTHS = 3;
-export const TITLES = { overview: 'Overview', entries: 'Entries', settings: 'Settings' };
+export const TITLES = { overview: 'Overview', entries: 'Groups', settings: 'Settings' };
 export const STARTER_TAGS = ['shared', 'essential', 'work', 'tax-deductible', 'cancel-soon', 'bundle', 'streaming', 'cloud-storage'];
 
 // ---------- Labels (category / payment method / tag) ----------
@@ -121,6 +121,12 @@ export function relDays(n) {
   return n > 0 ? `in ${n} days` : `${-n} days ago`;
 }
 
+/** After redrawing an open sheet in place: put back a toast that's still showing (it lives inside the sheet). */
+export function keepToast() {
+  const t = toast.el;
+  if (t?.classList.contains('show') && sheet.open && t.parentElement !== sheet) sheet.append(t);
+}
+
 export function toast(msg) {
   // Keep our own reference: the toast may get detached when the sheet's contents are replaced.
   const t = (toast.el ||= $('#toast'));
@@ -163,6 +169,20 @@ export function tagBar() {
 }
 
 export async function saveSettings() { await db.saveSettings(state.settings); }
+
+/**
+ * A new group (an entry with no set schedule: its amounts come from the payments in it), not yet
+ * saved. Used when you type a new group's name in the picker.
+ */
+export function newGroup({ name, type = 'expense', category = '', method = '', start = C.todayISO(), notes = '', ...more }) {
+  const now = new Date().toISOString();
+  return normalizeEntry({
+    id: uid(), type, name: cleanLabel(name), category, method, frequency: 'irregular', startDate: start,
+    contractEnd: null, endsAtExpiry: false, endDate: null, notes, tags: [],
+    prices: [{ from: start, amount: null, frequency: 'irregular' }],
+    variable: true, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now, ...more,
+  });
+}
 
 // ---------- Page elements: the tab view and the sheet (dialog) every screen draws into ----------
 export const view = $('#view');

@@ -33,15 +33,15 @@ test('credit card statement: matches, recurring, ignore payee, import, no duplic
   const recurring = imp(page).locator('.label-row', { hasText: 'Disney Plus' });
   await expect(recurring).toContainText('3 × $13.99 · monthly');
   await expect(recurring.locator('[data-new]')).toHaveText('✓ Adding');
-  await expect(txn(page, 'DISNEY PLUS').first().locator('select option:checked')).toHaveText('+ New entry: Disney Plus (monthly)');
+  await expect(txn(page, 'DISNEY PLUS').first().locator('select option:checked')).toHaveText('+ New group: Disney Plus (monthly)');
   // Switching one off gives it an entry of its own with no set schedule instead
   const google = imp(page).locator('.label-row', { hasText: 'Google' });
   await google.locator('[data-new]').click();
-  await expect(google.locator('[data-new]')).toHaveText('Add as entry');
-  await expect(txn(page, 'GOOGLE').first().locator('select option:checked')).toHaveText('+ New entry: Google One (no set schedule)');
+  await expect(google.locator('[data-new]')).toHaveText('Add as group');
+  await expect(txn(page, 'GOOGLE').first().locator('select option:checked')).toHaveText('+ New group: Google One (no set schedule)');
 
   // Every other payee gets an entry of its own unless you choose (not a catch-all)
-  await expect(txn(page, 'KMART').locator('select option:checked')).toHaveText('+ New entry: Kmart Bondi');
+  await expect(txn(page, 'KMART').locator('select option:checked')).toHaveText('+ New group: Kmart Bondi');
   // Paying off the card is a transfer between your accounts, not income
   await expect(imp(page)).toContainText('Transfers between your accounts (1)');
   await expect(txn(page, 'PAYMENT RECEIVED').locator('select option:checked')).toHaveText('Transfer between my accounts');
@@ -51,7 +51,7 @@ test('credit card statement: matches, recurring, ignore payee, import, no duplic
   await page.screenshot({ path: test.info().outputPath('import-review.png'), fullPage: true });
 
   await imp(page).locator('.sheet-head [data-apply]').click();
-  await expect(page.locator('#toast')).toContainText('added 2 entries');           // Disney Plus + Google One
+  await expect(page.locator('#toast')).toContainText('added 2 groups');           // Disney Plus + Google One
   await expect(page.locator('#toast')).toContainText('1 transfer');
   await expect(page.locator('#toast')).toContainText('ignored 1');
 
@@ -118,11 +118,16 @@ test('accounts: pick from previous ones, rename without losing duplicate detecti
   await imp(page).locator('.sheet-head [data-apply]').click();
   await expect(page.locator('#toast')).toContainText('Logged');
 
-  // Rename it in Settings
+  // Rename it in Settings → Accounts
   await tab(page, 'settings');
+  await page.locator('[data-action=open-accounts]').click();
+  await expect(page.locator('#accounts')).toContainText('Credit card');      // the type is guessed from the name
   page.answers.push('Everyday card');
   await page.getByRole('button', { name: 'Rename CommBank credit card' }).click();
-  await expect(page.locator('#toast')).toContainText('Renamed');
+  // (entries an import adds use a payment method like "Credit card", not the account's name, so none change)
+  await expect(page.locator('#toast')).toContainText('Account renamed');
+  await expect(page.locator('#accounts')).toContainText('imported as “CommBank credit card”');
+  await page.locator('#accounts [data-close]').click();
   await expect(page.locator('#view')).toContainText('Everyday card');
 
   // Next import picks the renamed account, and still knows what was imported
@@ -162,7 +167,9 @@ test('name a payee: shown on this and future imports, choices kept, used in paym
   // Settings remembers it, and the next import shows the name straight away
   await page.locator('#sheet .sheet-head [data-close]').click();
   await tab(page, 'settings');
-  await expect(page.locator('#view')).toContainText('1 payees with your own names');
+  // …and so does Settings → Payees
+  await page.locator('[data-action=open-payees]').click();
+  await expect(page.locator('#payees')).toContainText('School uniforms');
 });
 
 test('only deliberate choices are remembered; remembered matches and imported payments can be cleared', async ({ page }) => {
@@ -210,16 +217,16 @@ test('undo bank imports also deletes the entries imports added, so they stop mat
   await txn(page, 'WOOLWORTHS').locator('select').selectOption('ignore');
   await imp(page).locator('.sheet-head [data-apply]').click();
   // Disney Plus, Google One and Kmart Bondi (the card payment is a transfer, not income)
-  await expect(page.locator('#toast')).toContainText('added 3 entries');
+  await expect(page.locator('#toast')).toContainText('added 3 groups');
 
   await tab(page, 'settings');
   await page.locator('[data-action=undo-imports]').click();
   const undo = page.locator('#undoImports');
-  await expect(undo).toContainText('Entries added by imports (3) — switch off any to keep');
+  await expect(undo).toContainText('Groups added by imports (3) — switch off any to keep');
   await undo.screenshot({ path: test.info().outputPath('undo-imports.png') });
   await undo.locator('label', { hasText: 'Google One' }).locator('[name=del]').uncheck();   // keep this one
   await undo.locator('[data-undo]').click();
-  await expect.poll(() => page.dialogs.at(-1)).toMatch(/Delete \d+ payments and 2 entries/);
+  await expect.poll(() => page.dialogs.at(-1)).toMatch(/Delete \d+ payments and 2 groups/);
   await expect(page.locator('#toast')).toContainText('Bank imports undone');
 
   await tab(page, 'entries');
@@ -241,20 +248,20 @@ test('with no entries yet, any transaction can start a new entry', async ({ page
   await page.goto('/');
   await chooseFile(page, 'commbank-credit-card-padded.csv');
   const grocer = txn(page, 'GROCER 0412');
-  await expect(grocer.locator('option[disabled]').first()).toHaveText('No entries yet');
+  await expect(grocer.locator('option[disabled]').first()).toHaveText('No groups yet');
   // Two purchases from the same shop share a row, and become a "no set schedule" entry
   await expect(grocer).toContainText('2 ×');
   await expect(grocer).toContainText('GROCER 0398');                     // listed under it
-  await grocer.locator('select').selectOption({ label: '+ New entry: Grocer' });
-  await expect(grocer.locator('select option:checked')).toHaveText('+ New entry: Grocer');
+  await grocer.locator('select').selectOption({ label: '+ New group: Grocer' });
+  await expect(grocer.locator('select option:checked')).toHaveText('+ New group: Grocer');
   // A one-off
-  await txn(page, 'CAFE EXAMPLE').locator('select').selectOption({ label: '+ New entry: Cafe Example' });
+  await txn(page, 'CAFE EXAMPLE').locator('select').selectOption({ label: '+ New group: Cafe Example' });
   // A recurring payee offers its schedule
-  await txn(page, 'STREAMCO').first().locator('select').selectOption({ label: '+ New entry: Streamco (monthly)' });
+  await txn(page, 'STREAMCO').first().locator('select').selectOption({ label: '+ New group: Streamco (monthly)' });
   await expect(imp(page).locator('.label-row', { hasText: 'Streamco' })).toContainText('Adding');
   await imp(page).locator('.sheet-head [data-apply]').click();
   // Grocer, Cafe Example, Streamco and Netloop (recurring, added by default); the card payment is a transfer
-  await expect(page.locator('#toast')).toContainText('added 4 entries');
+  await expect(page.locator('#toast')).toContainText('added 4 groups');
 
   await tab(page, 'entries');
   await expect(row(page, 'Netloop')).toContainText('Monthly');
@@ -287,7 +294,7 @@ test('unmatched: one row per payee; giving two payees the same name puts them to
   await expect(google.locator('details')).toHaveAttribute('open', '');     // stays open across redraws
   await page.screenshot({ path: test.info().outputPath('import-payees.png'), fullPage: true });
 
-  await shopping.locator('select').selectOption({ label: '+ New entry: Shopping' });
+  await shopping.locator('select').selectOption({ label: '+ New group: Shopping' });
   // Other payees can now be put in with it
   await expect(google.locator('optgroup[label="New in this import"] option', { hasText: 'Shopping' })).toHaveCount(1);
   await imp(page).locator('.sheet-head [data-apply]').click();
@@ -300,7 +307,7 @@ test('everything imports by default, each payee to its own entry', async ({ page
   await openWithSample(page);
   await chooseFile(page, 'commbank-credit-card.csv');
   await imp(page).locator('.sheet-head [data-apply]').click();       // no choices made at all
-  await expect(page.locator('#toast')).toContainText('added 4 entries');  // Disney Plus, Google One, Woolworths, Kmart
+  await expect(page.locator('#toast')).toContainText('added 4 groups');  // Disney Plus, Google One, Woolworths, Kmart
   await tab(page, 'entries');
   for (const name of ['Kmart Bondi', 'Woolworths Sydney', 'Google One']) await expect(row(page, name)).toHaveCount(1);
   await expect(row(page, 'Everyday spending – CommBank credit card')).toHaveCount(0);
@@ -317,11 +324,11 @@ test('very similar payees share an entry; others stay apart', async ({ page }) =
   const kmart = txn(page, 'KMART');
   await expect(kmart).toHaveCount(1);                                   // two towns, one row
   await expect(kmart).toContainText('2 ×');
-  await expect(kmart.locator('select option:checked')).toHaveText('+ New entry: Kmart');
-  await expect(txn(page, 'UBER EATS').locator('select option:checked')).toHaveText('+ New entry: Uber Eats');
-  await expect(txn(page, 'UBER TRIP').locator('select option:checked')).toHaveText('+ New entry: Uber Trip');
+  await expect(kmart.locator('select option:checked')).toHaveText('+ New group: Kmart');
+  await expect(txn(page, 'UBER EATS').locator('select option:checked')).toHaveText('+ New group: Uber Eats');
+  await expect(txn(page, 'UBER TRIP').locator('select option:checked')).toHaveText('+ New group: Uber Trip');
   await imp(page).locator('.sheet-head [data-apply]').click();
-  await expect(page.locator('#toast')).toContainText('added 3 entries');
+  await expect(page.locator('#toast')).toContainText('added 3 groups');
   await tab(page, 'entries');
   await expect(row(page, 'Kmart')).toContainText('$');
 });
@@ -342,17 +349,26 @@ test('payees can be moved out of a catch-all later', async ({ page }) => {
   await expect(page.locator('#sheet')).toContainText('Payees (');
   const before = await payees.count();
   await page.locator('#sheet .payee-row').first().locator('xpath=ancestor::section').screenshot({ path: test.info().outputPath('payees.png') });
-  // Move Kmart into an entry of its own
-  const moveSel = name => page.locator('#sheet').getByRole('combobox', { name: new RegExp(`^Move ${name}`) });
-  await moveSel('Kmart').selectOption({ label: '+ New entry: Kmart Bondi' });
+  // Move Kmart into a group of its own: the picker offers to create one with the payee's name
+  const moveBtn = name => page.locator('#sheet').getByRole('button', { name: new RegExp(`^Move ${name}`) });
+  const picker = page.locator('#picker');
+  await moveBtn('Kmart').click();
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: /Create “Kmart Bondi”/ }).click();
   await expect(page.locator('#toast')).toContainText('Moved 1 payment to Kmart Bondi');
+  await expect(picker).toHaveCount(0);
   await expect(page.locator('#sheet[open]')).toBeVisible();                // still here, ready for the next one
   await expect(page.locator('#sheet [role=tab][data-page=accounts]')).toHaveAttribute('aria-selected', 'true');
-  await expect(moveSel('Kmart')).toHaveCount(0);
+  await expect(moveBtn('Kmart')).toHaveCount(0);
   await expect(payees).toHaveCount(before - 1);
   await expect(page.locator('#sheet .payee-row')).not.toHaveCount(0);       // a catch-all lists even its last payee
-  // Move Woolworths to an existing entry
-  await moveSel('Woolworths').selectOption({ label: 'Groceries' });
+  // Move Woolworths to an existing group: type to find it; the exact name picks it, not a new one
+  await moveBtn('Woolworths').click();
+  await picker.locator('.pick-search').fill('groc');
+  await expect(picker.locator('[data-create]')).toContainText('Create “groc”');
+  await picker.locator('.pick-search').fill('groceries');
+  await expect(picker.locator('[data-create]')).toHaveCount(0);           // matches an existing group
+  await picker.locator('.pick-search').press('Enter');
   await expect(page.locator('#toast')).toContainText('to Groceries');
   await page.locator('#sheet .sheet-head [data-close]').click();
 
@@ -381,7 +397,7 @@ test('transfers: a card payment already imported as spending is taken out when t
   await openWithSample(page);
   // The savings statement on its own can't tell that this transfer paid off the card
   await chooseFile(page, 'savings-card-payoff.csv');
-  await expect(txn(page, 'Transfer to xx1234').locator('select option:checked')).toHaveText('+ New entry: Commbank App');
+  await expect(txn(page, 'Transfer to xx1234').locator('select option:checked')).toHaveText('+ New group: Commbank App');
   await imp(page).locator('.sheet-head [data-apply]').click();
   await expect(page.locator('#toast')).toContainText('Logged 2 payments');
 
@@ -423,9 +439,9 @@ test('refunds: money back from a shop goes with its purchases, not to income', a
   await expect(kmart).toHaveCount(1);                                   // purchase and refund share a row
   await expect(kmart).toContainText('2 ×');
   await expect(kmart).toContainText('−$25.50');
-  await expect(kmart.locator('select option:checked')).toHaveText('+ New entry: Kmart Bondi');
+  await expect(kmart.locator('select option:checked')).toHaveText('+ New group: Kmart Bondi');
   await imp(page).locator('.sheet-head [data-apply]').click();
-  await expect(page.locator('#toast')).toContainText('added 2 entries');  // Kmart Bondi, Cafe Example
+  await expect(page.locator('#toast')).toContainText('added 2 groups');  // Kmart Bondi, Cafe Example
 
   await editEntry(page, 'Kmart Bondi');
   const amounts = await page.locator('#payments .pay-row [name=payamount]').evaluateAll(inputs => inputs.map(i => i.value));
@@ -443,7 +459,7 @@ test('undo last import: takes back only the latest import, and can be repeated',
   await openWithSample(page);
   await chooseFile(page, 'commbank-credit-card.csv');
   await imp(page).locator('.sheet-head [data-apply]').click();
-  await expect(page.locator('#toast')).toContainText('added 4 entries');   // Disney Plus, Google One, Woolworths, Kmart
+  await expect(page.locator('#toast')).toContainText('added 4 groups');   // Disney Plus, Google One, Woolworths, Kmart
   await chooseFile(page, 'card-with-refund.csv');
   await expect(page.locator('#impAccountPick')).toHaveValue('CommBank credit card');
   await imp(page).locator('.sheet-head [data-apply]').click();
@@ -454,7 +470,7 @@ test('undo last import: takes back only the latest import, and can be repeated',
   const undoRow = page.locator('[data-action=undo-last-import]');
   await expect(undoRow).toContainText('card-with-refund.csv into CommBank credit card');
   await undoRow.click();
-  await expect.poll(() => page.dialogs.at(-1)).toMatch(/This removes 3 payments and the 1 entry it added \(Cafe Example\)\./);
+  await expect.poll(() => page.dialogs.at(-1)).toMatch(/This removes 3 payments and the 1 group it added \(Cafe Example\)\./);
   await expect(page.locator('#toast')).toContainText('Import undone');
   await tab(page, 'entries');
   await expect(row(page, 'Cafe Example')).toHaveCount(0);                    // from the second
@@ -472,7 +488,7 @@ test('undo last import: takes back only the latest import, and can be repeated',
   await tab(page, 'settings');
   await expect(undoRow).toContainText('commbank-credit-card.csv');
   await undoRow.click();
-  await expect.poll(() => page.dialogs.at(-1)).toMatch(/the 4 entries it added \(.*Disney Plus.*\)/);
+  await expect.poll(() => page.dialogs.at(-1)).toMatch(/the 4 groups it added \(.*Disney Plus.*\)/);
   await expect(page.locator('#toast')).toContainText('Import undone');
   await expect(undoRow).toHaveCount(0);
   await tab(page, 'entries');
@@ -533,8 +549,8 @@ test('several files at once: each has its own account, and transfers between the
   await expect(txn(page, 'Transfer to xx1234')).toContainText('↔ CommBank credit card 20 Nov');
   await expect(txn(page, 'PAYMENT RECEIVED')).toContainText('↔ CommBank account 19 Nov');
   // Unmatched payees get entries of their own, whichever account they're in
-  await expect(txn(page, 'BAKERY').locator('select option:checked')).toHaveText('+ New entry: Bakery Example');
-  await expect(txn(page, 'KMART').locator('select option:checked')).toHaveText('+ New entry: Kmart Bondi');
+  await expect(txn(page, 'BAKERY').locator('select option:checked')).toHaveText('+ New group: Bakery Example');
+  await expect(txn(page, 'KMART').locator('select option:checked')).toHaveText('+ New group: Kmart Bondi');
   // Matched rows need no attention
   await expect(imp(page).locator('.imp-matched > summary')).toContainText('nothing to do');
   await imp(page).locator('.sheet-head [data-apply]').click();
@@ -570,7 +586,7 @@ test('a long list of matches is folded away: nothing to do unless you want to re
   await openWithSample(page);
   await chooseFile(page, 'many-matches.csv');
   const matched = imp(page).locator('.imp-matched');
-  await expect(matched.locator('> summary')).toContainText('✓ 9 transactions going to 9 entries, nothing to do.');
+  await expect(matched.locator('> summary')).toContainText('✓ 9 transactions going to 9 groups, nothing to do.');
   await expect(matched).not.toHaveAttribute('open', '');
   await expect(txn(page, 'NETFLIX').locator('select')).toBeHidden();
   await matched.locator('> summary').click();

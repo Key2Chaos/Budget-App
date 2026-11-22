@@ -59,11 +59,11 @@ export async function renderSettings() {
       </button>
       <button class="row" data-action="export-csv">
         <div class="row-main"><div class="row-title accent">Export spreadsheet (CSV)</div>
-        <div class="row-sub">Entries, payments and monthly totals — opens in Excel or Numbers</div></div>
+        <div class="row-sub">Groups, payments (with payee, account and method), monthly totals${(state.settings.payees || []).length ? ' and payees' : ''} — opens in Excel or Numbers</div></div>
       </button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </section>
-    <p class="fine pad-x">${state.entries.length} entries · Last backup: ${state.settings.lastBackup ? fmtDate(localDay(state.settings.lastBackup)) : 'never'}.
+    <p class="fine pad-x">${state.entries.length} groups · Last backup: ${state.settings.lastBackup ? fmtDate(localDay(state.settings.lastBackup)) : 'never'}.
       Your data is stored only on this device. Saving a backup to iCloud Drive lets you restore it on another iPhone, iPad or Mac.</p>
 
     <div class="group-title">Bank statements</div>
@@ -73,14 +73,24 @@ export async function renderSettings() {
         <div class="row-sub">Match transactions to your bills and log them as payments. CommBank and most banks. Choose several files to import them together.</div></div>
       </button>
       <input type="file" id="bankFile" accept=".csv,text/csv,text/comma-separated-values" multiple hidden>
-      ${accountKeys().map(k => `<div class="row static label-row">
-        <div class="row-main"><div class="row-title">${esc(accountName(k))}</div>
-        <div class="row-sub">Imported account</div></div>
-        <button type="button" class="btn small" data-action="rename-account" data-key="${esc(k)}" aria-label="Rename ${esc(accountName(k))}">Rename</button>
-      </div>`).join('')}
+      ${accountKeys().length ? `<button class="row" data-action="open-accounts">
+        <div class="row-main"><div class="row-title">Accounts (${accountKeys().length})</div>
+        <div class="row-sub">${esc(accountKeys().map(accountName).join(', '))}</div></div>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>` : ''}
+      ${(state.settings.payees || []).length ? (() => {
+        const all = state.settings.payees;
+        const ids = new Set(state.entries.map(e => e.id));
+        const loose = all.filter(p => !p.rule && !ids.has(p.groupId)).length;
+        return `<button class="row" data-action="open-payees">
+        <div class="row-main"><div class="row-title">Payees (${all.length})</div>
+        <div class="row-sub">Who you pay and are paid by${loose ? ` · ${loose} ungrouped` : ''} — rename, group, merge</div></div>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>`;
+      })() : ''}
       ${entryRuleCount() ? `<button class="row" data-action="forget-rules">
         <div class="row-main"><div class="row-title accent">Forget remembered matches</div>
-        <div class="row-sub">${entryRuleCount()} payee${entryRuleCount() === 1 ? '' : 's'} currently go straight to an entry. “Always ignore” choices are kept.</div></div>
+        <div class="row-sub">${entryRuleCount()} payee${entryRuleCount() === 1 ? '' : 's'} currently go straight to a group. “Always ignore” choices are kept.</div></div>
       </button>` : ''}
       ${(state.settings.importLog || []).length ? (() => {
         const b = state.settings.importLog.at(-1);
@@ -91,12 +101,11 @@ export async function renderSettings() {
       })() : ''}
       ${hasImportData() ? `<button class="row" data-action="undo-imports">
         <div class="row-main"><div class="row-title danger">Undo bank imports…</div>
-        <div class="row-sub">Remove imported payments, entries imports added, remembered matches and ignored transactions, to start again.</div></div>
+        <div class="row-sub">Remove imported payments, groups imports added, remembered matches and ignored transactions, to start again.</div></div>
       </button>` : ''}
     </section>
     <p class="fine pad-x">Download a CSV from your bank's website or app first. The file is read on this device only.
-      ${Object.keys(state.settings.payeeNames || {}).length ? `${Object.keys(state.settings.payeeNames).length} payees with your own names.` : ''}
-      To name a payee, tap <strong>Name</strong> next to it when importing.</p>
+      To name a payee, tap <strong>Name</strong> next to it when importing, or open <strong>Payees</strong>.</p>
 
     <div class="group-title">Storage</div>
     <section class="card list">

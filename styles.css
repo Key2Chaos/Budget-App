@@ -230,18 +230,18 @@ input[type=search] {
 .toolbar + .group-title, .toolbar + p + .group-title { margin-top: 16px; }
 
 /* ---------- Sheet (entry form) ---------- */
-dialog#sheet {
+dialog#sheet, dialog#picker {
   border: 0; padding: 0; margin: 0; inset: 0;
   width: 100%; max-width: 100%; height: 100%; max-height: 100%;
   background: var(--bg); color: var(--text);
   overflow-y: auto; -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
-dialog#sheet[open] { animation: sheet-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+dialog#sheet[open], dialog#picker[open] { animation: sheet-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
 dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 @keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (min-width: 700px) {
-  dialog#sheet { max-width: 560px; height: auto; max-height: 88vh; margin: auto; border-radius: 16px; }
+  dialog#sheet, dialog#picker { max-width: 560px; height: auto; max-height: 88vh; margin: auto; border-radius: 16px; }
 }
 .sheet-head {
   position: sticky; top: 0; z-index: 2;
@@ -447,3 +447,29 @@ form.tabbed .tab-panel:not(.on) { display: none; }
 .sum-links { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 0.5px solid var(--line); }
 .sum-links .link { font-size: 15px; padding: 0; }
 .sheet-tabs button { white-space: nowrap; }
+
+/* ---------- Picker (choose a group, or type a new name) ---------- */
+.pick-search { margin-bottom: 4px; }
+.pick-list .group-title:first-child { margin-top: 12px; }
+.pick-list > .card:first-child { margin-top: 12px; }
+.pick-row { width: 100%; text-align: left; }
+.pick-row.exact .row-title { font-weight: 600; }
+.pay-note:has(.pay-move) { display: flex; gap: 8px; align-items: baseline; }
+.pay-note-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pay-move { flex: none; margin-left: auto; font-size: 13px; }
+
+/* ---------- Accounts and Payees sheets ---------- */
+.acct-card { margin-bottom: 14px; }
+.acct-val { flex: 1; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.acct-txns { padding: 0 16px 8px; }
+.payee-filter { margin: 10px 0 14px; }
+.payee-filter button { flex: 1; }
+.payee-kind { margin-bottom: 10px; }
+.payee-kind button { flex: 1; }
+#payees .row-amt small { white-space: nowrap; }
+.sum-break { font-size: 14px; margin-top: 10px; line-height: 1.5; }
+.sum-part { white-space: nowrap; }
+.sum-part strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+.card > .imp-sub { padding: 8px 16px; }
+.card > .imp-sub + .imp-sub { border-top: 0.5px solid var(--line); }
+.acct-card .field > .btn, #payee .field > .btn { margin-left: auto; flex: none; }

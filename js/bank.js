@@ -455,6 +455,49 @@ export function commonName(names) {
   return out.join(' ') || names[0];
 }
 
+/**
+ * A payee that's very similar to one you've already put in a group goes to that group too: the same
+ * company under a different payment form or reference ("TELSTRA BPAY 1234" / "Telstra Corp Ltd"), or
+ * seen first in another account. Only transactions with no suggestion yet are changed.
+ * known: [{ key, name, groupId, type }] — payees already in a group, and that group's type
+ * ('expense' | 'income'). Money in from a payee whose group is an expense is a refund, so it goes
+ * there too; money out never goes to an income group.
+ */
+export function suggestSimilar(txns, known) {
+  if (!known.length) return txns;
+  const cache = new Map();
+  return txns.map(t => {
+    if (t.action) return t;
+    const name = t.name || payeeName(t.payee);
+    if (!cache.has(name)) cache.set(name, known.filter(k => k.key !== t.payee && similarPayees(name, k.name)));
+    const hit = cache.get(name).find(k => (t.amount < 0 ? k.type === 'expense' : true));
+    return hit ? { ...t, action: hit.groupId, why: 'similar', like: hit.name } : t;
+  });
+}
+
+// ---------- Payment method ----------
+
+/**
+ * How a transaction was paid, from the bank's text: 'BPAY', 'Direct debit', 'PayID', 'Bank transfer',
+ * 'Card' or 'Cash'. When the text doesn't say, a credit card account's transactions are 'Credit card';
+ * otherwise ''. accountKind is the account's kind ('credit', 'transaction', 'savings', …).
+ */
+export function guessMethod(description, accountKind = '') {
+  const s = String(description).toUpperCase();
+  if (/\bBPAY\b/.test(s)) return 'BPAY';
+  if (/\bDIRECT DEBIT\b|\bDD\b/.test(s)) return 'Direct debit';
+  if (/\b(OSKO|PAYID|NPP)\b/.test(s)) return 'PayID';
+  if (/\b(ATM|CASH OUT|WITHDRAWAL)\b/.test(s)) return 'Cash';
+  if (accountKind === 'credit') return 'Credit card';
+  if (/\b(CARD\s*X*\d+|VISA|MASTERCARD|EFTPOS|DEBIT CARD|PURCHASE)\b/.test(s) || merchantPart(description)) return 'Card';
+  if (/\b(TRANSFER|TFR|XFER|DIRECT CREDIT|SALARY|PAY)\b/.test(s)) return 'Bank transfer';
+  return '';
+}
+
+/** An account kind from its name: "… credit card" → 'credit', "… savings" → 'savings', else 'transaction'. */
+export const guessAccountKind = name => (/card|amex|visa|mastercard/i.test(name) ? 'credit'
+  : /sav(ing|er)|bonus|goal|offset/i.test(name) ? 'savings' : 'transaction');
+
 // ---------- Payments already logged by hand ----------
 
 /** How close a hand-logged payment must be to a bank transaction to be treated as the same one. */

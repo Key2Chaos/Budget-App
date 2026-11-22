@@ -64,7 +64,7 @@ export function renderEntries() {
       <input type="search" id="search" placeholder="Search names, notes, #tags" value="${esc(state.search)}" autocomplete="off">
       ${tagBar()}
     </div>
-    ${list.length ? '' : `<p class="empty-small">${state.entries.length ? 'Nothing matches.' : 'No entries yet. Tap + to add one.'}</p>`}
+    ${list.length ? '' : `<p class="empty-small">${state.entries.length ? 'Nothing matches.' : 'No groups yet. Tap + to add one.'}</p>`}
     ${group('Recurring', recurring, recurring.length ? totals : '')}
     ${group('One-off', oneOff)}
     ${group('Ended', ended)}

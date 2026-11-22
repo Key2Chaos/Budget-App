@@ -9,6 +9,8 @@ import { openSheet } from './sheet-entry.js';
 import { manageBudgets } from './sheet-budgets.js';
 import { forgetRules, openUndoImports, undoLastImport, renameAccount, startBankImport } from './importer.js';
 import { openManage } from './sheet-labels.js';
+import { openAccounts } from './sheet-accounts.js';
+import { openPayees } from './sheet-payees.js';
 import { exportBackup, exportCSV, importBackup, sampleEntries } from './backup.js';
 
 // ---------- Global events ----------
@@ -41,6 +43,8 @@ const actions = {
   'manage-budgets': manageBudgets,
   'import-bank': () => $('#bankFile').click(),
   'rename-account': t => renameAccount(t.dataset.key),
+  'open-accounts': () => openAccounts(),
+  'open-payees': () => openPayees(),
   'forget-rules': forgetRules,
   'undo-imports': openUndoImports,
   'undo-last-import': undoLastImport,
@@ -70,11 +74,11 @@ const actions = {
   import: () => $('#importFile').click(),
   persist: async () => { const ok = await navigator.storage.persist(); toast(ok ? 'Storage protected' : 'Not granted — add to Home Screen first'); render(); },
   erase: async () => {
-    if (!confirm('Erase ALL entries on this device? Export a backup first if you might need them.')) return;
+    if (!confirm('Erase ALL groups on this device? Export a backup first if you might need them.')) return;
     if (!confirm('Are you sure? This cannot be undone.')) return;
     await db.clearEntries();
     Object.assign(state.settings, { lastBackup: null, budgets: [], balance: null, paydayId: null,
-      payeeRules: {}, ignoredTxns: [], transfers: [], bankAccounts: [], accountNames: {}, payeeNames: {} });
+      ignoredTxns: [], transfers: [], accounts: [], payees: [], importLog: [] });
     await saveSettings();
     await reload();
     toast('All data erased');
@@ -134,8 +138,13 @@ $('#addBtn').addEventListener('click', () => openSheet());
     const saved = (await db.getSettings()) || {};
     const stored = await db.allEntries();
     // Data saved by an older version of the app goes through the same upgrade path as old backups.
-    const { entries, skipped } = migrateBackup({ app: APP_ID, version: saved.schemaVersion ?? 1, settings: saved, entries: stored });
+    const { entries, settings: migrated, skipped } = migrateBackup({ app: APP_ID, version: saved.schemaVersion ?? 1, settings: saved, entries: stored });
     Object.assign(state.settings, saved);
+    // Since format 5, your accounts and payees are records of their own (made from the older fields)
+    if ((saved.schemaVersion ?? 1) < 5) {
+      for (const k of ['payeeRules', 'payeeNames', 'bankAccounts', 'accountNames']) delete state.settings[k];
+      Object.assign(state.settings, { accounts: migrated.accounts || [], payees: migrated.payees || [] });
+    }
     state.entries = entries;
     const before = new Map(stored.map(e => [String(e.id), JSON.stringify(e)]));
     const changed = entries.filter(e => before.get(e.id) !== JSON.stringify(e));
