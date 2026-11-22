@@ -1,0 +1,116 @@
+// The Settings tab.
+import * as C from './calc.js';
+import * as Bank from './bank.js';
+import { localDay, CURRENCIES, state, esc, fmtDate, view } from './core.js';
+import { accountKeys, accountName, entryRuleCount, hasImportData } from './importer.js';
+
+export async function renderSettings() {
+  const standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  const persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : null;
+  if (state.tab !== 'settings') return; // user switched tabs while awaiting
+
+  view.innerHTML = `
+    ${standalone ? '' : `<div class="group-title">Install</div>
+    <section class="card pad">
+      <p>For the best experience on iPhone, open this page in <strong>Safari</strong>, tap the <strong>Share</strong> button, then <strong>Add to Home Screen</strong>. It will then run full-screen and work offline.</p>
+    </section>`}
+
+    <div class="group-title">General</div>
+    <section class="card list">
+      <label class="row static">
+        <div class="row-main"><div class="row-title">Currency</div></div>
+        <select id="currency">${CURRENCIES.map(c => `<option ${c === state.settings.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
+      </label>
+      <button class="row" data-action="manage-labels">
+        <div class="row-main"><div class="row-title">Manage labels</div>
+        <div class="row-sub">Rename, merge or delete categories, payment methods and tags</div></div>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
+      <button class="row" data-action="manage-budgets">
+        <div class="row-main"><div class="row-title">Budgets</div>
+        <div class="row-sub">${(state.settings.budgets || []).length
+          ? `${state.settings.budgets.length} monthly limit${state.settings.budgets.length === 1 ? '' : 's'}`
+          : 'Set monthly limits for a category or tag'}</div></div>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
+      ${(() => {
+        const incomes = state.entries.filter(e => e.type === 'income' && e.frequency !== 'once' && !C.isEnded(e) && !C.isIrregular(e));
+        if (!incomes.length) return '';
+        return `<label class="row static">
+          <div class="row-main"><div class="row-title">Payday</div>
+          <div class="row-sub">Used for “Until payday” on the Overview</div></div>
+          <select id="payday">
+            <option value="">Biggest income</option>
+            ${incomes.map(e => `<option value="${e.id}" ${state.settings.paydayId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}
+          </select>
+        </label>`;
+      })()}
+    </section>
+
+    <div class="group-title">Backup &amp; iCloud</div>
+    <section class="card list">
+      <button class="row" data-action="export">
+        <div class="row-main"><div class="row-title accent">Export backup</div>
+        <div class="row-sub">Choose “Save to Files” → iCloud Drive</div></div>
+      </button>
+      <button class="row" data-action="import">
+        <div class="row-main"><div class="row-title accent">Import backup</div>
+        <div class="row-sub">Merges a backup file into this device</div></div>
+      </button>
+      <button class="row" data-action="export-csv">
+        <div class="row-main"><div class="row-title accent">Export spreadsheet (CSV)</div>
+        <div class="row-sub">Entries, payments and monthly totals — opens in Excel or Numbers</div></div>
+      </button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </section>
+    <p class="fine pad-x">${state.entries.length} entries · Last backup: ${state.settings.lastBackup ? fmtDate(localDay(state.settings.lastBackup)) : 'never'}.
+      Your data is stored only on this device. Saving a backup to iCloud Drive lets you restore it on another iPhone, iPad or Mac.</p>
+
+    <div class="group-title">Bank statements</div>
+    <section class="card list">
+      <button class="row" data-action="import-bank">
+        <div class="row-main"><div class="row-title accent">Import bank statement (CSV)</div>
+        <div class="row-sub">Match transactions to your bills and log them as payments. CommBank and most banks. Choose several files to import them together.</div></div>
+      </button>
+      <input type="file" id="bankFile" accept=".csv,text/csv,text/comma-separated-values" multiple hidden>
+      ${accountKeys().map(k => `<div class="row static label-row">
+        <div class="row-main"><div class="row-title">${esc(accountName(k))}</div>
+        <div class="row-sub">Imported account</div></div>
+        <button type="button" class="btn small" data-action="rename-account" data-key="${esc(k)}" aria-label="Rename ${esc(accountName(k))}">Rename</button>
+      </div>`).join('')}
+      ${entryRuleCount() ? `<button class="row" data-action="forget-rules">
+        <div class="row-main"><div class="row-title accent">Forget remembered matches</div>
+        <div class="row-sub">${entryRuleCount()} payee${entryRuleCount() === 1 ? '' : 's'} currently go straight to an entry. “Always ignore” choices are kept.</div></div>
+      </button>` : ''}
+      ${(state.settings.importLog || []).length ? (() => {
+        const b = state.settings.importLog.at(-1);
+        return `<button class="row" data-action="undo-last-import">
+        <div class="row-main"><div class="row-title danger">Undo last import…</div>
+        <div class="row-sub">${esc(b.files > 1 ? `${b.files} files` : b.file)} into ${esc((b.accounts || [b.account]).map(accountName).join(', '))} · ${esc(fmtDate(localDay(b.at)))}</div></div>
+      </button>`;
+      })() : ''}
+      ${hasImportData() ? `<button class="row" data-action="undo-imports">
+        <div class="row-main"><div class="row-title danger">Undo bank imports…</div>
+        <div class="row-sub">Remove imported payments, entries imports added, remembered matches and ignored transactions, to start again.</div></div>
+      </button>` : ''}
+    </section>
+    <p class="fine pad-x">Download a CSV from your bank's website or app first. The file is read on this device only.
+      ${Object.keys(state.settings.payeeNames || {}).length ? `${Object.keys(state.settings.payeeNames).length} payees with your own names.` : ''}
+      To name a payee, tap <strong>Name</strong> next to it when importing.</p>
+
+    <div class="group-title">Storage</div>
+    <section class="card list">
+      <div class="row static">
+        <div class="row-main"><div class="row-title">Protected from clean-up</div>
+        <div class="row-sub">${persisted === null ? 'Not supported by this browser' : persisted ? 'Yes — the browser won’t clear this data' : 'Not yet — install to Home Screen for best protection'}</div></div>
+        ${persisted === false ? '<button class="btn small" data-action="persist">Request</button>' : ''}
+      </div>
+    </section>
+
+    <div class="group-title">Danger zone</div>
+    <section class="card list">
+      <button class="row" data-action="erase"><div class="row-main"><div class="row-title danger">Erase all data</div></div></button>
+    </section>
+    <p class="fine pad-x">Budget · works offline · no account, no tracking.</p>
+  `;
+}
