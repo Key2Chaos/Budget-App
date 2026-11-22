@@ -10,6 +10,7 @@ import { reload } from './render.js';
 import { pick, pickGroup } from './picker.js';
 import { payeeOfPayment } from './sheet-entry.js';
 import { groupSuggestions, suggestCategory } from './importer.js';
+import { movePayments, removeEmptyGroups, removedNote, homeGroup } from './groups.js';
 
 let view = { q: '', filter: 'all' }; // the list's search and filter, kept while the sheet is open
 
@@ -185,26 +186,14 @@ async function chooseGroup(row) {
     ? newGroup({ name: choice.create, type, start, category: suggestCategory(choice.create, type), fromImport: true })
     : state.entries.find(e => e.id === choice.id);
   if (!dest) return;
-  await movePayments(row.pays.filter(x => x.e.id !== dest.id), dest, now);
+  const sources = [...new Set([p.groupId, ...row.pays.map(x => x.e.id)])].filter(Boolean);
+  await movePayments(row.pays, dest, now);
   state.settings.payees = M.updatePayee(state.settings, p.id, { groupId: dest.id });
   await saveSettings();
   await reload();
+  const removed = await removeEmptyGroups(sources);
   openPayee(p.id);
-  toast(`${title} → ${dest.name}${row.pays.length ? ` · ${row.pays.length} payment${row.pays.length === 1 ? '' : 's'} moved` : ''}`);
-}
-
-/** Move payments ([{ p, e }]) into `dest`, keeping each one's direction (into the other type, the sign flips). */
-async function movePayments(list, dest, now) {
-  const changed = new Map([[dest.id, { ...dest, payments: [...(dest.payments || [])] }]]);
-  for (const { p, e } of list) {
-    const from = changed.get(e.id) || { ...e, payments: [...e.payments] };
-    from.payments = from.payments.filter(x => x.id !== p.id);
-    changed.set(e.id, from);
-    const to = changed.get(dest.id);
-    to.payments.push({ ...p, amount: e.type === dest.type ? p.amount : -p.amount, due: Bank.nearestDue(to, p.date) });
-  }
-  const out = [...changed.values()].map(e => normalizeEntry({ ...e, updatedAt: now })).filter(Boolean);
-  if (out.length) await db.putEntries(out);
+  toast(`${title} → ${dest.name}${row.pays.length ? ` · ${row.pays.length} payment${row.pays.length === 1 ? '' : 's'} moved` : ''}${removedNote(removed)}`);
 }
 
 /** Merge another payee into this one: one payee with both spellings. */
@@ -218,13 +207,20 @@ async function mergeInto(row) {
   });
   if (!choice?.id) return;
   const from = others.find(r => r.payee.id === choice.id);
+  const sources = [...new Set([row.payee.groupId, from.payee.groupId, ...row.pays.map(x => x.e.id), ...from.pays.map(x => x.e.id)])].filter(Boolean);
   state.settings.payees = M.mergePayees(state.settings, row.payee.id, choice.id);
-  // Their payments join this payee's group, if it has one
+  // One payee, one group: all their payments go to its group (or, if it has none, the group that
+  // already has most of them), and the payee belongs there from now on
   const merged = M.payeeById(state.settings, row.payee.id);
-  const dest = merged.groupId && state.entries.find(e => e.id === merged.groupId);
-  if (dest && from.pays.length) await movePayments(from.pays.filter(x => x.e.id !== dest.id), dest, new Date().toISOString());
+  const all = [...row.pays, ...from.pays];
+  const dest = homeGroup(merged, all);
+  if (dest) {
+    await movePayments(all, dest);
+    if (!merged.rule) state.settings.payees = M.updatePayee(state.settings, merged.id, { groupId: dest.id });
+  }
   await saveSettings();
   await reload();
+  const removed = await removeEmptyGroups(sources);
   openPayee(row.payee.id);
-  toast(`Merged ${M.payeeTitle(from.payee)} into ${title}`);
+  toast(`Merged ${M.payeeTitle(from.payee)} into ${title}${dest ? ` · all in ${dest.name}` : ''}${removedNote(removed)}`);
 }

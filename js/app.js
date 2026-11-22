@@ -11,6 +11,7 @@ import { forgetRules, openUndoImports, undoLastImport, renameAccount, startBankI
 import { openManage } from './sheet-labels.js';
 import { openAccounts } from './sheet-accounts.js';
 import { openPayees } from './sheet-payees.js';
+import { sweepEmptyGroups, removedNote } from './groups.js';
 import { exportBackup, exportCSV, importBackup, sampleEntries } from './backup.js';
 
 // ---------- Global events ----------
@@ -155,7 +156,10 @@ $('#addBtn').addEventListener('click', () => openSheet());
     view.innerHTML = `<p class="empty-small">Couldn’t load your data: ${esc(e.message)}</p>`;
     return;
   }
+  // Empty groups that moves before this version left behind
+  const swept = await sweepEmptyGroups().catch(() => []);
   render();
+  if (swept.length) toast(`Tidied up${removedNote(swept)}`);
   // Ask the browser not to evict our data (granted automatically for Home Screen apps on iOS).
   navigator.storage?.persist?.().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});

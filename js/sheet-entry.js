@@ -7,6 +7,7 @@ import * as M from './model.js';
 import { normalizeEntry, normalizeTags, cleanTag } from './schema.js';
 import { STARTER_TAGS, canonicalLabel, categoryOptions, methodOptions, state, $, esc, uid, money, fmtDate, toast, allTags, saveSettings, sheet, closeSheet, newGroup } from './core.js';
 import { pickGroup } from './picker.js';
+import { movePayments, removeEmptyGroups, removedNote } from './groups.js';
 import { reload } from './render.js';
 import { isCatchAll, accountKeys, accountName, getRules, setRules, groupSuggestions, suggestCategory } from './importer.js';
 
@@ -72,20 +73,15 @@ export async function choosePaymentGroup(from, paymentId) {
   const choice = await pickGroup({ title: 'Move this payment to', type: from.type, exclude: [from.id],
     suggested: p.payee ? groupSuggestions(payeeLabel(p.payee), from.type, [from.id]) : [] });
   if (!choice) return;
-  const now = new Date().toISOString();
-  const dest = choice.create ? newGroup({ name: choice.create, type: from.type, start: p.date, category: suggestCategory(choice.create, from.type) })
-    : state.entries.find(e => e.id === choice.id);
+  const dest = choice.create ? newGroup({ name: choice.create, type: from.type, start: p.date, fromImport: true,
+    category: suggestCategory(choice.create, from.type) }) : state.entries.find(e => e.id === choice.id);
   if (!dest) return;
-  // Into an entry of the other type, the amount's sign follows: money out as a refund on income, and so on
-  const amount = dest.type === from.type ? p.amount : -p.amount;
-  await db.putEntries([
-    normalizeEntry({ ...from, payments: from.payments.filter(x => x.id !== p.id), updatedAt: now }),
-    normalizeEntry({ ...dest, payments: [...(dest.payments || []), { ...p, amount, due: Bank.nearestDue(dest, p.date) }], updatedAt: now }),
-  ]);
+  await movePayments([{ p, e: from }], dest);
   await reload();
+  const removed = await removeEmptyGroups([from.id]);
   const fresh = state.entries.find(e => e.id === from.id);
-  if (fresh) openSheet(fresh, 'transactions');
-  toast(`Moved to ${dest.name}`);
+  if (fresh) openSheet(fresh, 'transactions'); else closeSheet();
+  toast(`Moved to ${dest.name}${removedNote(removed)}`);
 }
 
 /**
@@ -116,21 +112,17 @@ export async function movePayee(from, key, to) {
     dest = state.entries.find(e => e.id === to);
   }
   if (!dest) return;
-  const moved = pays.map(p => ({ ...p, payee: key, due: Bank.nearestDue(dest, p.date) }));
-  const ids = new Set(pays.map(p => p.id));
-  await db.putEntries([
-    normalizeEntry({ ...from, payments: from.payments.filter(p => !ids.has(p.id)), updatedAt: now }),
-    normalizeEntry({ ...dest, payments: [...(dest.payments || []), ...moved], updatedAt: now }),
-  ]);
+  await movePayments(pays.map(p => ({ p: { ...p, payee: key }, e: from })), dest, now);
   if (dest.frequency !== 'once') {
     setRules({ ...getRules(), [key]: dest.id });
     await saveSettings();
   }
   await reload();
+  const removed = await removeEmptyGroups([from.id]);
   const fresh = state.entries.find(e => e.id === from.id);
   if (fresh) openSheet(fresh, 'accounts'); // redraw in place, ready to move the next payee
   else closeSheet();
-  toast(`Moved ${pays.length} payment${pays.length === 1 ? '' : 's'} to ${dest.name}`); // after the redraw, or it's wiped
+  toast(`Moved ${pays.length} payment${pays.length === 1 ? '' : 's'} to ${dest.name}${removedNote(removed)}`); // after the redraw, or it's wiped
 }
 
 /** Switch the entry sheet to one of its pages (Summary, Transactions, Accounts). */
@@ -603,12 +595,7 @@ export async function mergeGroup(entry) {
   if (!dest) return;
   const pays = entry.payments || [];
   if (!confirm(`Merge “${entry.name}” into “${dest.name}”? ${pays.length ? `Its ${pays.length === 1 ? '1 payment moves' : `${pays.length} payments move`} there, and so do its payees. ` : ''}“${entry.name}” is then removed.`)) return;
-  const now = new Date().toISOString();
-  const moved = pays.map(p => ({ ...p, amount: dest.type === entry.type ? p.amount : -p.amount, due: Bank.nearestDue(dest, p.date) }));
-  const start = [dest.startDate, ...moved.map(p => p.date)].sort()[0];
-  // A group with no set schedule starts at its first payment; a scheduled one keeps its start date
-  const grow = C.isIrregular(dest) && start < dest.startDate ? { startDate: start, prices: [{ ...dest.prices[0], from: start }, ...dest.prices.slice(1)] } : {};
-  await db.putEntry(normalizeEntry({ ...dest, ...grow, payments: [...(dest.payments || []), ...moved], updatedAt: now }));
+  await movePayments(pays.map(p => ({ p, e: entry })), dest);
   await db.deleteEntry(entry.id);
   state.settings.payees = M.payeesOf(state.settings).map(p => (p.groupId === entry.id ? { ...p, groupId: dest.id } : p));
   const budgets = state.settings.budgets || [];
