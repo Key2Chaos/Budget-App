@@ -186,6 +186,25 @@ export function newGroup({ name, type = 'expense', category = '', method = '', s
 
 // ---------- Page elements: the tab view and the sheet (dialog) every screen draws into ----------
 export const view = $('#view');
+// Computer-sized windows get the sidebar and two-column layout (matches the 900px breakpoint in styles.css)
+export const wideScreen = matchMedia('(min-width: 900px)');
+
+/** Wrap each `.group-title` and what follows it (up to the next title) in a `.sec` box, inside one
+ *  `<div class="${cls}">`. A phone shows them exactly as before; wide screens lay the boxes out in columns. */
+export function sectionize(root, cls) {
+  const wrap = document.createElement('div');
+  wrap.className = cls;
+  let sec = null;
+  for (const n of [...root.childNodes]) {
+    if (n.nodeType === 1 && n.classList.contains('group-title')) {
+      sec = document.createElement('div');
+      sec.className = 'sec';
+      wrap.append(sec);
+    }
+    if (sec) sec.append(n);
+  }
+  if (sec) root.append(wrap);
+}
 export const sheet = $('#sheet');
 
 export function closeSheet() {

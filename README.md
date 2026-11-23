@@ -185,6 +185,10 @@ No backend, no account. All data lives on the device in IndexedDB.
 - **Backup**: export to the iOS share sheet, then "Save to Files" → iCloud Drive. Import merges a
   backup file back in.
 - Works offline, supports dark mode, and respects the iPhone notch and home-indicator areas.
+- **On a computer** (a window 900px or wider): the tabs move to a sidebar on the left, the Overview
+  shows two columns (totals, chart and breakdowns on the left; payments due, budgets and payday on
+  the right), Groups and Settings use two columns, and the edit sheet is wider. A phone looks the same
+  as before.
 
 ## Labelling guide
 
@@ -251,6 +255,7 @@ next launch or the one after.
 | --- | --- | --- |
 | `npm test` (or `node tests/run.mjs`) | Old backups still import; date and money maths; the offline file list | Before every commit (pre-commit hook) and on GitHub |
 | `npm run test:e2e` | The real app in a phone-sized browser: every screen, adding, editing and deleting, backups, CSV, labels, payments, budgets, payday, offline mode, upgrading old saved data, focus. Also an **Australian** run (en-AU, Sydney time, including just after midnight) | On GitHub after every push, in Chromium and **WebKit** (Safari's engine) |
+| (same command) `tests/e2e/desktop.spec.mjs` | The computer layout in a 1280×800 window: sidebar, columns, chart size, no sideways scrolling, back to the phone layout when narrowed. Set `E2E_SHOTS=1` to save screenshots to `test-results/` | The `desktop-chromium` project, locally and on GitHub |
 
 Setup for the browser tests is a one-off `npm install`. Locally they use your installed Microsoft Edge.
 To also run WebKit: `npx playwright install webkit`, then `E2E_WEBKIT=1 npm run test:e2e`.

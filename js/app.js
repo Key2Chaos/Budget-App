@@ -2,7 +2,7 @@
 import { db } from './db.js';
 import * as C from './calc.js';
 import { APP_ID, SCHEMA_VERSION, migrateBackup } from './schema.js';
-import { state, $, esc, uid, fmtCache, fmtDate, toast, saveSettings, view } from './core.js';
+import { state, $, esc, uid, fmtCache, fmtDate, toast, saveSettings, view, wideScreen } from './core.js';
 import { reload, render } from './render.js';
 import { renderEntries } from './view-entries.js';
 import { openSheet } from './sheet-entry.js';
@@ -132,6 +132,8 @@ document.querySelector('.tabbar').addEventListener('click', ev => {
   render();
 });
 $('#addBtn').addEventListener('click', () => openSheet());
+// The chart is drawn at a different size on computers, so redraw it when the window crosses the breakpoint
+wideScreen.addEventListener('change', () => { if (state.tab === 'overview') render(); });
 
 // ---------- Boot ----------
 (async function init() {
