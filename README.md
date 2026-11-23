@@ -142,8 +142,10 @@ No backend, no account. All data lives on the device in IndexedDB.
   - **One row per payee.** Unmatched transactions are grouped by payee (tap the row's count to see
     them); one choice covers them all. Very similar payees share a row: the same name, one name plus
     more words ("Kmart" / "Kmart Bondi"), the same distinctive first word ("Kmart Bondi" / "Kmart
-    Sydney"), or a near-identical spelling. Short first words and payment processors don't count, so
-    "Uber Eats" and "Uber Trip", or "PayPal *Netflix" and "PayPal *Spotify", stay apart. Give two
+    Sydney"), or a near-identical spelling. Short first words don't count, so "Uber Eats" and "Uber
+    Trip" stay apart. A payment service's prefix is left out ("SQ *Woolworths Sydney" is Woolworths
+    Sydney; also Zeller "ZLR*", SumUp, Toast, Stripe and "PayPal *"), so paying the same shop through
+    a card terminal or PayPal lands with its other payments. Give two
     payees the same name, or pick a new entry another payee is getting (*New in this import*), to put
     them together.
   - **Everything imports by default, each payee to its own entry.** Matches go to their entry, payees

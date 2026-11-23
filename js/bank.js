@@ -237,8 +237,24 @@ export function merchantPart(raw) {
 
 const NOISE = /\b(VALUE DATE:?\s*\S+|CARD\s*XX\d+|CARD\s*\d+|XX\d+|AUS?|AUSTRALIA|NSW|VIC|QLD|TAS|ACT|NT|NZL?|GBR?|USA?|DIRECT DEBIT|DIRECT CREDIT|TRANSFER (TO|FROM)|PAYMENT (TO|FROM)|EFTPOS|VISA (DEBIT )?PURCHASE|PURCHASE|PENDING|RECURRING|PTY|LTD|LIMITED|INC)\b/g;
 
-/** A stable key for "who was paid": 'NETFLIX.COM Melbourne AU Card xx1234 Value Date: 01/11/2026' → 'NETFLIX COM MELBOURNE'. */
-export function payeeKey(description) {
+// Card terminals and payment services put their own name first: "SQ *WOOLWORTHS SYDNEY" (Square),
+// "ZLR*Cafe" (Zeller), "SMP*" / "SUMUP *" (SumUp), "TST*" (Toast), "PAYPAL *NETFLIX". The shop is
+// what follows the "*".
+const PROCESSOR = /^\s*(SQ|SQUARE|ZLR|ZELLER|SMP|SUMUP|TST|STRIPE|PAYPAL)\s*\*\s*/i;
+
+/** The description without a payment processor's prefix: "SQ *WOOLWORTHS SYDNEY" → "WOOLWORTHS SYDNEY". */
+export function withoutProcessor(description) {
+  const s = String(description), rest = s.replace(PROCESSOR, '');
+  return rest.trim() ? rest : s;
+}
+
+/**
+ * A stable key for "who was paid": 'NETFLIX.COM Melbourne AU Card xx1234 Value Date: 01/11/2026' →
+ * 'NETFLIX COM MELBOURNE', and 'SQ *WOOLWORTHS SYDNEY' → 'WOOLWORTHS SYDNEY'. `legacy` keeps the
+ * processor's prefix, as keys were made before Nov 2026, so choices remembered then still apply.
+ */
+export function payeeKey(description, legacy = false) {
+  if (!legacy) description = withoutProcessor(description);
   const s = String(description).toUpperCase().replace(NOISE, ' ').replace(/[^A-Z ]+/g, ' ').replace(/\s+/g, ' ').trim();
   const words = s.split(' ').filter(w => w.length > 1).slice(0, 3);
   return words.join(' ') || String(description).toUpperCase().replace(/\s+/g, ' ').slice(0, 24);
@@ -267,9 +283,11 @@ export function withIds(txns, account) {
     const base = `${account.toLowerCase()}|${t.date}|${t.amount}|${t.description.toUpperCase()}`;
     const n = (seen.get(base) || 0) + 1;
     seen.set(base, n);
-    // `oldPayee` is the key before merchantPart existed, so choices remembered then still apply.
-    return { ...t, id: `t${hash(base)}${n > 1 ? `-${n}` : ''}`, payee: payeeKey(t.merchant || t.description),
-      oldPayee: payeeKey(t.description) };
+    // `oldPayee` is the key as it was made before, so choices remembered then still apply: with the
+    // processor's prefix ("SQ WOOLWORTHS SYDNEY"), else from before merchantPart existed.
+    const payee = payeeKey(t.merchant || t.description), legacy = payeeKey(t.merchant || t.description, true);
+    return { ...t, id: `t${hash(base)}${n > 1 ? `-${n}` : ''}`, payee,
+      oldPayee: legacy !== payee ? legacy : payeeKey(t.description, true) };
   });
 }
 
@@ -394,7 +412,12 @@ export function suggest(txns, entries, rules = {}, names = {}) {
 /** Payment processors and banking words: the first word says nothing about who was paid ("PAYPAL *NETFLIX"). */
 const GENERIC_FIRST = new Set(['paypal', 'square', 'sumup', 'stripe', 'zeller', 'google', 'apple', 'transfer',
   'payment', 'direct', 'internet', 'online', 'osko', 'bpay', 'cash', 'withdrawal', 'deposit', 'interest']);
-const words = name => String(name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+/** A processor's name before the shop's: "Sq Woolworths" is Woolworths (names made from older keys). */
+const PROCESSOR_WORDS = new Set(['sq', 'square', 'zlr', 'zeller', 'smp', 'sumup', 'tst', 'stripe', 'paypal']);
+const words = name => {
+  const w = String(name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return w.length > 1 && PROCESSOR_WORDS.has(w[0]) ? w.slice(1) : w;
+};
 
 function editDistance(a, b) {
   let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
