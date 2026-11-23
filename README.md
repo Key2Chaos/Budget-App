@@ -249,6 +249,10 @@ On the iPhone, open the URL in **Safari** → Share → **Add to Home Screen**.
 Bump `VERSION` in `sw.js` each time you deploy. The installed app picks up the new version on its
 next launch or the one after.
 
+To see which version a browser or phone is running, open **Settings → Storage → Version**. It shows
+the `VERSION` from `sw.js` that is serving the app. **Reload** next to it checks for a newer version,
+waits for it to install, and reloads, so you can confirm a deploy has arrived without reinstalling.
+
 ## Tests
 
 | Command | What it checks | Where it runs |

@@ -115,6 +115,11 @@ export async function renderSettings() {
         <div class="row-sub">${persisted === null ? 'Not supported by this browser' : persisted ? 'Yes — the browser won’t clear this data' : 'Not yet — install to Home Screen for best protection'}</div></div>
         ${persisted === false ? '<button class="btn small" data-action="persist">Request</button>' : ''}
       </div>
+      <div class="row static">
+        <div class="row-main"><div class="row-title">Version <span id="appVersion" class="muted">…</span></div>
+        <div class="row-sub">Reload checks for a newer version and switches to it</div></div>
+        <button class="btn small" data-action="reload-app">Reload</button>
+      </div>
     </section>
 
     <div class="group-title">Danger zone</div>
@@ -124,4 +129,19 @@ export async function renderSettings() {
     <p class="fine pad-x">Budget · works offline · no account, no tracking.</p>
   `;
   sectionize(view, 'set-cols');
+  appVersion().then(v => { const el = document.getElementById('appVersion'); if (el) el.textContent = v || 'not installed (no offline copy yet)'; });
+}
+
+/** The version the service worker is serving, e.g. "v35" (null if there isn't one). */
+async function appVersion() {
+  if (!('serviceWorker' in navigator)) return null;
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const reg = await Promise.race([navigator.serviceWorker.ready, wait(2000)]);
+  const sw = navigator.serviceWorker.controller || reg?.active;
+  if (!sw) return null;
+  return Promise.race([wait(2000).then(() => null), new Promise(res => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = e => res(e.data?.version || null);
+    sw.postMessage('version', [ch.port2]);
+  })]);
 }

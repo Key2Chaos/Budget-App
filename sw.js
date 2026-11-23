@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION whenever you deploy changes so phones pick them up.
-const VERSION = 'v34';
+const VERSION = 'v35';
 const CACHE = `budget-${VERSION}`;
 const ASSETS = [
   './',
@@ -35,7 +35,15 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's own HTTP cache, so a new version never stores old files
+  e.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
+});
+
+// Settings asks which version is running (shown under Storage → Version)
+self.addEventListener('message', e => {
+  if (e.data === 'version') e.ports[0]?.postMessage({ version: VERSION });
 });
 
 self.addEventListener('activate', e => {

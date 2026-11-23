@@ -71,6 +71,20 @@ const actions = {
   'tags-clear': () => { state.tags = []; state.sel = null; render(); },
   breakdown: t => { state.breakdown = t.dataset.by; render(); },
   'go-settings': () => { state.tab = 'settings'; render(); },
+  // Fetch the latest sw.js; if it's a new version, wait for it to take over, then reload the page
+  'reload-app': async () => {
+    toast('Checking for updates…');
+    const reg = await navigator.serviceWorker?.getRegistration().catch(() => null);
+    if (reg) {
+      await reg.update().catch(() => {});
+      const w = reg.installing || reg.waiting;
+      if (w) await new Promise(r => {
+        w.addEventListener('statechange', () => { if (w.state === 'activated' || w.state === 'redundant') r(); });
+        setTimeout(r, 15000);
+      });
+    }
+    location.reload();
+  },
   export: exportBackup,
   import: () => $('#importFile').click(),
   persist: async () => { const ok = await navigator.storage.persist(); toast(ok ? 'Storage protected' : 'Not granted — add to Home Screen first'); render(); },
@@ -164,5 +178,5 @@ wideScreen.addEventListener('change', () => { if (state.tab === 'overview') rend
   if (swept.length) toast(`Tidied up${removedNote(swept)}`);
   // Ask the browser not to evict our data (granted automatically for Home Screen apps on iOS).
   navigator.storage?.persist?.().catch(() => {});
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
 })();
