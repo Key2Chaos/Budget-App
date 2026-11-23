@@ -30,7 +30,7 @@ export function priceRow(p, first) {
 }
 
 /** Which payee an imported payment came from (older payments: worked out from the bank's text in the note). */
-export const payeeOfPayment = p => (p.source ? p.payee || Bank.payeeKey((p.note || '').split(' · ').at(-1)) : null);
+export const payeeOfPayment = p => (p.source ? p.payee || Bank.payeeKey((p.note || '').split(' · ').at(-1), true) : null);
 export const payeeLabel = key => M.keyTitle(state.settings, key);
 
 /**

@@ -57,7 +57,7 @@ const MIGRATIONS = {
     // One payee per payee key: remembered ones, named ones, then any seen on imported payments
     const keys = [...Object.keys(old.payeeRules), ...Object.keys(old.payeeNames)];
     for (const e of entries) for (const p of e?.payments || []) {
-      if (p?.source) keys.push(p.payee || payeeKey(String(p.note ?? '').split(' · ').at(-1)));
+      if (p?.source) keys.push(p.payee || payeeKey(String(p.note ?? '').split(' · ').at(-1), true));
     }
     const payees = [...new Set(keys.filter(Boolean))].map(k => {
       const v = old.payeeRules[k];

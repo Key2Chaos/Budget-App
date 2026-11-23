@@ -759,6 +759,26 @@ test('parsing typed amounts', () => {
   assert.ok(Number.isNaN(C.parseAmount('abc')));
 });
 
+test('payment processor prefixes (Square, Zeller, PayPal…) are left out of the payee', () => {
+  assert.equal(B.payeeKey('SQ *WOOLWORTHS SYDNEY AU'), 'WOOLWORTHS SYDNEY');
+  assert.equal(B.payeeKey('SQ * WOOLWORTHS SYDNEY'), 'WOOLWORTHS SYDNEY');
+  assert.equal(B.payeeKey('ZLR*Corner Cafe Bondi'), 'CORNER CAFE BONDI');
+  assert.equal(B.payeeKey('PAYPAL *NETFLIX'), 'NETFLIX');
+  assert.equal(B.payeeKey('SQUARE ONE CAFE'), 'SQUARE ONE CAFE'); // no "*": a real name
+  assert.equal(B.payeeKey('SQ *'), 'SQ');                         // nothing after it: keep what there is
+  assert.equal(B.payeeKey('SQ *WOOLWORTHS SYDNEY', true), 'SQ WOOLWORTHS SYDNEY');
+  // The old key is kept, so a choice remembered for it still applies
+  const [t] = B.withIds([{ date: '2026-11-02', amount: -12.5, description: 'SQ *WOOLWORTHS SYDNEY' }], 'Card');
+  assert.equal(t.payee, 'WOOLWORTHS SYDNEY');
+  assert.equal(t.oldPayee, 'SQ WOOLWORTHS SYDNEY');
+  const [s] = B.suggest([t], [{ id: 'w', type: 'expense', name: 'Woolworths', payments: [], prices: [] }], { 'SQ WOOLWORTHS SYDNEY': 'w' });
+  assert.equal(s.action, 'w');
+  // Payees named from older keys are the same shop
+  assert.ok(B.similarPayees('Sq Woolworths', 'Woolworths'));
+  assert.ok(B.similarPayees('Sq Woolworths', 'Woolworths Sydney'));
+  assert.ok(!B.similarPayees('Sq Woolworths', 'Sq Coles'));
+});
+
 test('similar payees: same shop in other towns share an entry; different services and processors stay apart', () => {
   const same = [['Kmart', 'Kmart Bondi'], ['Kmart Bondi', 'Kmart Sydney'], ['Woolworth', 'Woolworths'], ['Coles', 'Coles Express']];
   const apart = [['Uber Eats', 'Uber Trip'], ['Paypal Netflix', 'Paypal Spotify'], ['Netflix', 'Spotify'], ['Bp', 'Bupa'], ['Paypal', 'Paypal Netflix']];
