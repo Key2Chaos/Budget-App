@@ -32,8 +32,15 @@ export default defineConfig({
   projects: [
     {
       name: 'phone-chromium',
+      testIgnore: 'desktop.spec.mjs',
       use: { ...phone, browserName: 'chromium', ...(CI || process.env.E2E_CHROMIUM ? {} : { channel: 'msedge' }) },
     },
-    ...(CI || process.env.E2E_WEBKIT ? [{ name: 'iphone-webkit', use: { ...devices['iPhone 14'] } }] : []),
+    ...(CI || process.env.E2E_WEBKIT ? [{ name: 'iphone-webkit', testIgnore: 'desktop.spec.mjs', use: { ...devices['iPhone 14'] } }] : []),
+    // A laptop-sized window: the sidebar and column layout
+    {
+      name: 'desktop-chromium',
+      testMatch: 'desktop.spec.mjs',
+      use: { viewport: { width: 1280, height: 800 }, browserName: 'chromium', ...(CI || process.env.E2E_CHROMIUM ? {} : { channel: 'msedge' }) },
+    },
   ],
 });

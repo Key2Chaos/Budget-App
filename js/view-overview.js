@@ -2,7 +2,7 @@
 import * as C from './calc.js';
 import { buildChart } from './chart.js';
 import * as R from './reports.js';
-import { localDay, FORECAST_MONTHS, state, $, esc, money, dueAmount, signed, compactMoney, monthShort, monthLong, monthYear, dayShort, fmtDate, relDays, tagFiltered, tagBar, view } from './core.js';
+import { localDay, FORECAST_MONTHS, state, $, esc, money, dueAmount, signed, compactMoney, monthShort, monthLong, monthYear, dayShort, fmtDate, relDays, tagFiltered, tagBar, view, wideScreen } from './core.js';
 import { accountName } from './importer.js';
 
 export let chartCtl = null;
@@ -55,6 +55,7 @@ export function renderOverview() {
 
   chartCtl = buildChart(chartData, {
     currentIdx,
+    wide: wideScreen.matches,
     axisFmt: compactMoney,
     monthFmt: d => (d.m === 0 ? String(d.y) : monthShort.format(new Date(d.y, d.m, 1))),
   });
@@ -135,8 +136,9 @@ export function renderOverview() {
     ${backupBanner}
     ${tagBar()}
     ${filterNote}
+    <div class="ov-cols">
 
-    ${pay.length ? `<section class="card">
+    ${pay.length ? `<section class="card" data-col="side">
       <div class="card-head"><h3>To pay</h3><span class="muted">${pay.filter(x => x.overdue).length ? `${pay.filter(x => x.overdue).length} overdue` : 'manual payments'}</span></div>
       <div class="list">${pay.map(({ e, due, overdue }) => `
         <div class="row pay-item">
@@ -170,7 +172,7 @@ export function renderOverview() {
         : 'Recurring items are spread evenly per month (e.g. yearly ÷ 12).'}</p>
     </section>
 
-    ${budgets.length ? `<section class="card">
+    ${budgets.length ? `<section class="card" data-col="side">
       <div class="card-head"><h3>Budgets</h3><button class="link small-link" data-action="manage-budgets">Edit</button></div>
       <p class="fine">This month</p>
       <div class="cats">${budgets.map(s => `
@@ -196,7 +198,7 @@ export function renderOverview() {
         </div>`;
       }).join('');
       const leftAtEnd = bal ? bal.amount + pd.net : null;
-      return `<section class="card">
+      return `<section class="card" data-col="side">
         <div class="card-head"><h3>Until payday</h3><span class="muted">${esc(pd.main.name)} · ${fmtDate(pd.payday)} · ${relDays(pd.days)}</span></div>
         <label class="row static balance-row">
           <div class="row-main"><div class="row-title">Balance now</div>
@@ -244,7 +246,7 @@ export function renderOverview() {
       <p class="fine">Change in ${yearly ? 'yearly' : 'monthly'} cost, your share. Green is good for you, red is not.</p>
     </section>` : ''}
 
-    ${contracts.length ? `<section class="card">
+    ${contracts.length ? `<section class="card" data-col="side">
       <div class="card-head"><h3>Contracts</h3></div>
       <div class="list">${contracts.map(({ e, notice, noticeDays, endDays, days }) => `
         <button class="row" data-action="edit" data-id="${e.id}">
@@ -260,7 +262,7 @@ export function renderOverview() {
         </button>`).join('')}
       </div></section>` : ''}
 
-    ${upcoming.length ? `<section class="card">
+    ${upcoming.length ? `<section class="card" data-col="side">
       <div class="card-head"><h3>Next 14 days</h3></div>
       <div class="list">${upcoming.map(({ e, due }) => `
         <button class="row" data-action="edit" data-id="${e.id}">
@@ -286,7 +288,9 @@ export function renderOverview() {
           <div class="bar"><span style="width:${((v / catMax) * 100).toFixed(1)}%"></span></div>
         </div>`).join('')}
       </div></section>` : ''}
+    </div>
   `;
+  splitColumns($('.ov-cols', view));
 
   const svg = $('.chart-svg', view);
   const select = i => { state.sel = i; chartCtl.highlight(svg, i); updateReadout(currentIdx); };
@@ -294,6 +298,15 @@ export function renderOverview() {
   const onPointer = ev => select(chartCtl.indexAt(svg, ev.clientX));
   svg.addEventListener('pointerdown', onPointer);
   svg.addEventListener('pointermove', ev => { if (ev.buttons || ev.pointerType === 'touch') onPointer(ev); });
+}
+
+// Wide screens: cards marked data-col="side" go in a narrower right-hand column. On a phone the
+// columns are display: contents, and `order` keeps the cards in the order they were written.
+function splitColumns(cols) {
+  const main = document.createElement('div'), side = document.createElement('div');
+  main.className = 'ov-main'; side.className = 'ov-side';
+  [...cols.children].forEach((c, i) => { c.style.order = i; (c.dataset.col === 'side' ? side : main).append(c); });
+  cols.append(main, side);
 }
 
 export function updateReadout(currentIdx) {

@@ -1,7 +1,7 @@
 // The Settings tab.
 import * as C from './calc.js';
 import * as Bank from './bank.js';
-import { localDay, CURRENCIES, state, esc, fmtDate, view } from './core.js';
+import { localDay, CURRENCIES, state, esc, fmtDate, view, sectionize } from './core.js';
 import { accountKeys, accountName, entryRuleCount, hasImportData } from './importer.js';
 
 export async function renderSettings() {
@@ -13,6 +13,7 @@ export async function renderSettings() {
     ${standalone ? '' : `<div class="group-title">Install</div>
     <section class="card pad">
       <p>For the best experience on iPhone, open this page in <strong>Safari</strong>, tap the <strong>Share</strong> button, then <strong>Add to Home Screen</strong>. It will then run full-screen and work offline.</p>
+      ${matchMedia('(pointer: fine)').matches ? '<p class="small-text muted" style="margin-top:8px">On a computer, use the <strong>Install</strong> button in Chrome or Edge’s address bar, or <strong>File → Add to Dock</strong> in Safari on a Mac.</p>' : ''}
     </section>`}
 
     <div class="group-title">General</div>
@@ -122,4 +123,5 @@ export async function renderSettings() {
     </section>
     <p class="fine pad-x">Budget · works offline · no account, no tracking.</p>
   `;
+  sectionize(view, 'set-cols');
 }

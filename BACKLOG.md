@@ -40,7 +40,6 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 
 - Accessibility pass: VoiceOver labels on icon buttons, colour contrast of the muted text, and the order of the segmented controls.
 - Real-iPhone checklist before big releases: date pickers, the share sheet, Home Screen install, dark mode, and the notch/home-bar spacing.
-- Desktop-only: the date box's calendar icon is slightly clipped in the payment rows (not visible on iPhone).
 
 ## Not possible in a web app (for reference)
 
@@ -75,5 +74,6 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-22 | Bank import: several files at once (own account/check each, transfers paired between them); matched rows grouped and folded away; ignored list keeps the newest transactions (20,000) instead of silently dropping recent decisions; balance check skips blanks |
 | 2026-11-22 | Entries split into three pages — Summary (key figures + settings), Transactions (payment log), Accounts (per bank account totals + payees with Move to…); imported payments now record their account |
 | 2026-11-23 | Accounts, payees and groups (format v5): entries are called groups; Settings → Payees (rename, group, merge spellings, ignore / transfer) and Settings → Accounts (type, balance, this month, transactions); the group picker (pick or type a new name) on imports, Move to… and single payments; similar payees suggested for an existing group; payment method per payment and breakdowns on each group; budgets and "Where it goes" by group; deleting a group keeps its imported payments in Ungrouped; payees and accounts in backups and the spreadsheet export |
+| 2026-11-23 | Layout for computers: sidebar instead of the bottom tabs, two-column Overview, Groups and Settings, a wider chart drawing and edit sheet, hover states. Fixed the clipped calendar icon on desktop date boxes |
 | 2026-11-22 | Design for accounts, payees and groups agreed ([docs/DESIGN.md](docs/DESIGN.md)). `js/app.js` split into one file per screen (no change in behaviour) |
 | 2026-11-22 | Bank import: every unmatched payee gets an entry of its own (no more Everyday spending by default); very similar payees share one; transfers are taken out of those entries too. Payment log: signed amounts with ±, credits in green, "Received" / "Paid back" on income |

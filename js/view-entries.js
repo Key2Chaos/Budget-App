@@ -1,6 +1,6 @@
 // The Entries tab: the list of entries, search and filters.
 import * as C from './calc.js';
-import { state, esc, money, signed, fmtDate, tagFiltered, tagBar, view } from './core.js';
+import { state, esc, money, signed, fmtDate, tagFiltered, tagBar, view, sectionize } from './core.js';
 
 export function renderEntries() {
   const today = C.todayISO();
@@ -69,4 +69,5 @@ export function renderEntries() {
     ${group('One-off', oneOff)}
     ${group('Ended', ended)}
   `;
+  sectionize(view, 'grp-cols');
 }

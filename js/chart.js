@@ -6,8 +6,9 @@ function niceStep(raw) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * pow;
 }
 
-export function buildChart(data, { currentIdx, axisFmt, monthFmt }) {
-  const W = 340, H = 190, L = 44, R = 12, T = 12, B = 24;
+export function buildChart(data, { currentIdx, axisFmt, monthFmt, wide = false }) {
+  // A wider drawing on computers, so the labels stay small instead of the chart scaling up
+  const W = wide ? 640 : 340, H = wide ? 230 : 190, L = 44, R = 12, T = 12, B = 24;
   const n = data.length;
   const iw = W - L - R, ih = H - T - B;
   const max = Math.max(1, ...data.flatMap(d => [d.income, d.expense]));
@@ -31,8 +32,8 @@ export function buildChart(data, { currentIdx, axisFmt, monthFmt }) {
     s += `<text x="${L - 6}" y="${y(v) + 3.5}" text-anchor="end" class="c-label">${axisFmt(v)}</text>`;
   }
 
-  // X labels (max ~6)
-  const every = Math.max(1, Math.ceil(n / 6));
+  // X labels (max ~6, or ~12 when wide)
+  const every = Math.max(1, Math.ceil(n / (wide ? 12 : 6)));
   data.forEach((d, i) => {
     if (((currentIdx - i) % every + every) % every !== 0) return; // evenly spaced, always incl. "now"
     s += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" class="c-label${i === currentIdx ? ' c-now' : ''}">${monthFmt(d)}</text>`;
