@@ -1,7 +1,7 @@
 // Accounts, payees and groups (docs/DESIGN.md): the picker, Settings → Payees and Accounts, deleting
 // a group, budgets and breakdowns by group, and upgrading saved data from format 4. Made-up data.
 import { fileURLToPath } from 'node:url';
-import { test, expect, openWithSample, tab, row, editEntry, sheetPage, readFixture } from './helpers.mjs';
+import { test, expect, openEmpty, openWithSample, tab, row, editEntry, sheetPage, readFixture } from './helpers.mjs';
 
 test.use({ locale: 'en-AU', timezoneId: 'Australia/Sydney' });
 const csv = name => fileURLToPath(new URL(`../fixtures/bank/${name}`, import.meta.url));
@@ -150,7 +150,7 @@ test('budgets and "Where it goes" by group; a group shows how it was paid', asyn
 
 test('data saved before format 5: accounts and payees are upgraded on start-up', async ({ page }) => {
   const backup = readFixture('v4-2026-11-bank-import.json');
-  await page.goto('/');
+  await openEmpty(page);
   await page.evaluate(b => new Promise((resolve, reject) => {
     const req = indexedDB.open('budget-pwa', 1);
     req.onsuccess = () => {
@@ -242,7 +242,7 @@ test('merging two payees puts all their payments in one group; the emptied group
 });
 
 test('start-up tidies empty groups earlier moves left behind, once; groups you made stay', async ({ page }) => {
-  await page.goto('/');
+  await openEmpty(page);
   const group = (id, name, extra) => ({ id, type: 'expense', name, category: '', method: '', frequency: 'irregular',
     startDate: '2026-10-01', contractEnd: null, endsAtExpiry: false, endDate: null, notes: '', tags: [],
     prices: [{ from: '2026-10-01', amount: null, frequency: 'irregular' }], variable: true, manual: false, share: 100,

@@ -1,5 +1,5 @@
 // Core screens, navigation, offline, start-up upgrade of old data, focus.
-import { test, expect, openWithSample, tab, card, row, expectNoHorizontalScroll } from './helpers.mjs';
+import { test, expect, openEmpty, openWithSample, tab, card, row, expectNoHorizontalScroll } from './helpers.mjs';
 import { SCHEMA_VERSION } from '../../js/schema.js';
 import { readFileSync } from 'node:fs';
 
@@ -69,7 +69,7 @@ test('works offline after the first visit', async ({ page, context, browserName 
 });
 
 test('data saved by an older app version is upgraded on start-up', async ({ page }) => {
-  await page.goto('/');
+  await openEmpty(page);
   // Write a v1-era entry straight into the database: no tags, no payments, no per-change frequency.
   await page.evaluate(() => new Promise((resolve, reject) => {
     const req = indexedDB.open('budget-pwa', 1);

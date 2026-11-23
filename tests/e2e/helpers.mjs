@@ -33,6 +33,16 @@ export const test = base.extend({
 });
 export { expect };
 
+/**
+ * Open the app with nothing saved, and wait until start-up has finished. Start-up reads and saves
+ * settings, so a test that writes straight to the database must wait, or the two can overlap and
+ * the test's data is half-overwritten (seen in WebKit about 1 run in 40).
+ */
+export async function openEmpty(page) {
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Try it with sample data' })).toBeVisible();
+}
+
 /** Open the app and load the built-in sample data. */
 export async function openWithSample(page) {
   await page.goto('/');
