@@ -1,6 +1,7 @@
 // Core screens, navigation, offline, start-up upgrade of old data, focus.
-import { test, expect, openWithSample, tab, card, row, expectNoHorizontalScroll } from './helpers.mjs';
+import { test, expect, openEmpty, openWithSample, tab, card, row, expectNoHorizontalScroll } from './helpers.mjs';
 import { SCHEMA_VERSION } from '../../js/schema.js';
+import { readFileSync } from 'node:fs';
 
 test('empty state, then sample data fills every Overview card', async ({ page }) => {
   await page.goto('/');
@@ -45,6 +46,17 @@ test('tag filter narrows the Overview and can be cleared', async ({ page }) => {
   await expect(page.locator('.summary .net .k')).toHaveText('Left over');
 });
 
+test('Settings shows the version the service worker is serving', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', 'Playwright’s WebKit doesn’t run service workers reliably');
+  const version = readFileSync(new URL('../../sw.js', import.meta.url), 'utf8').match(/const VERSION = '([^']+)'/)[1];
+  await openWithSample(page);
+  await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 15_000 });
+  await tab(page, 'settings');
+  await expect(page.locator('#appVersion')).toHaveText(version);
+  await page.getByRole('button', { name: 'Reload' }).click();
+  await expect(page.locator('.summary')).toBeVisible(); // reloaded, back on the Overview
+});
+
 test('works offline after the first visit', async ({ page, context, browserName }) => {
   test.skip(browserName === 'webkit', 'Playwright’s WebKit doesn’t run service workers offline reliably');
   await page.goto('/');
@@ -57,7 +69,7 @@ test('works offline after the first visit', async ({ page, context, browserName 
 });
 
 test('data saved by an older app version is upgraded on start-up', async ({ page }) => {
-  await page.goto('/');
+  await openEmpty(page);
   // Write a v1-era entry straight into the database: no tags, no payments, no per-change frequency.
   await page.evaluate(() => new Promise((resolve, reject) => {
     const req = indexedDB.open('budget-pwa', 1);

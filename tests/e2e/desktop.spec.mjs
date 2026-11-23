@@ -69,6 +69,8 @@ test('Groups and Settings use the width', async ({ page }) => {
   await shot(page, 'groups');
 
   await tab(page, 'settings');
+  // Settings draws after an async storage check, so wait for its sections before measuring
+  await expect(page.locator('.set-cols > .sec').first()).toBeVisible();
   const xs = await page.locator('.set-cols > .sec').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().x)));
   expect(new Set(xs).size).toBe(2);
   await shot(page, 'settings');
