@@ -5,7 +5,9 @@ import * as R from './reports.js';
 import * as Bank from './bank.js';
 import * as M from './model.js';
 import { normalizeEntry, normalizeTags, cleanTag } from './schema.js';
-import { STARTER_TAGS, canonicalLabel, categoryOptions, methodOptions, state, $, esc, uid, money, fmtDate, toast, allTags, saveSettings, sheet, closeSheet, newGroup } from './core.js';
+import { STARTER_TAGS, canonicalLabel, categoryOptions, methodOptions, state, $, esc, uid, money, fmtDate, toast, allTags, saveSettings, sheet, closeSheet, newGroup,
+  FORECAST_MONTHS, compactMoney, monthShort, monthLong, monthYear, wideScreen } from './core.js';
+import { buildChart, attachChart } from './chart.js';
 import { pickGroup } from './picker.js';
 import { movePayments, removeEmptyGroups, removedNote } from './groups.js';
 import { reload } from './render.js';
@@ -177,6 +179,59 @@ export function summaryCard(entry) {
   </section>`;
 }
 
+// The group chart's range (months back, or 'all'), kept while the app is open
+let groupRange = 12;
+
+/** The group's "Over time" card; drawGroupChart fills it in once the sheet is on screen. */
+function groupChartCard() {
+  return `<section class="card group-chart">
+    <div class="card-head"><h3>Over time</h3>
+      <div class="seg small">${[[6, '6M'], [12, '1Y'], [24, '2Y'], ['all', 'All']].map(([v, l]) =>
+        `<button type="button" data-grange="${v}" class="${groupRange === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    </div>
+    <div class="chart"></div>
+    <div class="readout"></div>
+    <p class="fine g-insight"></p>
+  </section>`;
+}
+
+/** Draw one group's month-by-month amounts (your share), like the Overview chart, with a forecast. */
+export function drawGroupChart(card, entry) {
+  const now = new Date();
+  const key = entry.type === 'income' ? 'income' : 'expense';
+  let past = groupRange;
+  if (past === 'all') {
+    const first = (entry.payments || []).reduce((d, p) => (p.date < d ? p.date : d), entry.startDate);
+    const f = C.parse(first < C.todayISO() ? first : C.todayISO());
+    past = Math.max(2, (now.getFullYear() - f.getFullYear()) * 12 + now.getMonth() - f.getMonth() + 1);
+  }
+  const ahead = C.isEnded(entry) ? 0 : FORECAST_MONTHS;
+  const start = new Date(now.getFullYear(), now.getMonth() - past + 1, 1);
+  const data = C.series([entry], start.getFullYear(), start.getMonth(), past + ahead);
+  const currentIdx = past - 1;
+  const ctl = buildChart(data, {
+    currentIdx, keys: [key], wide: wideScreen.matches, axisFmt: compactMoney,
+    label: `${entry.name} by month`,
+    monthFmt: d => (d.m === 0 ? String(d.y) : monthShort.format(new Date(d.y, d.m, 1))),
+  });
+  card.querySelector('.chart').innerHTML = ctl.svg;
+  const svg = card.querySelector('.chart-svg');
+  const readout = card.querySelector('.readout');
+  const select = i => {
+    ctl.highlight(svg, i);
+    const d = data[i];
+    readout.innerHTML = `<div class="ro-month">${esc(monthLong.format(new Date(d.y, d.m, 1)) + (i > currentIdx ? ' (forecast)' : ''))}</div>
+      <div class="ro-grid"><span><i class="sw ${key}"></i>${money(d[key])}</span></div>`;
+  };
+  select(currentIdx);
+  attachChart(svg, ctl, select);
+  // Average over the whole months so far (not this one, which is part estimate)
+  const done = data.slice(0, currentIdx);
+  const avg = done.length ? done.reduce((n, d) => n + d[key], 0) / done.length : null;
+  card.querySelector('.g-insight').textContent = avg == null ? 'Your share, month by month.'
+    : `Your share, month by month · averaged ${money(avg)}/mo from ${monthYear.format(new Date(data[0].y, data[0].m, 1))} to last month.`;
+}
+
 /**
  * Which bank account an imported payment came from: stored on newer payments; for older ones, the
  * account of the catch-all it's in, or of the import it came in with. Null when logged by hand.
@@ -260,7 +315,7 @@ export function openSheet(entry = null, tab = 'summary') {
           .map(([k, label]) => `<button type="button" role="tab" data-page="${k}" aria-selected="${k === tab}" class="${k === tab ? 'on' : ''}">${label}</button>`).join('')}
       </div>`}
       <div class="tab-panel ${tab === 'summary' ? 'on' : ''}" data-panel="summary" role="tabpanel">
-      ${isNew ? '' : summaryCard(entry)}
+      ${isNew ? '' : summaryCard(entry) + groupChartCard()}
       <div class="seg type-seg">
         <label><input type="radio" name="type" value="expense" ${e.type !== 'income' ? 'checked' : ''}><span>Expense</span></label>
         <label><input type="radio" name="type" value="income" ${e.type === 'income' ? 'checked' : ''}><span>Income</span></label>
@@ -451,7 +506,13 @@ export function openSheet(entry = null, tab = 'summary') {
     const rm = ev.target.closest('[data-remove-tag]');
     const add = ev.target.closest('[data-add-tag]');
     const tabBtn = ev.target.closest('[data-page]');
+    const gr = ev.target.closest('[data-grange]');
     if (tabBtn) showTab(form, tabBtn.dataset.page);
+    else if (gr) {
+      groupRange = gr.dataset.grange === 'all' ? 'all' : Number(gr.dataset.grange);
+      for (const b of form.querySelectorAll('[data-grange]')) b.classList.toggle('on', b === gr);
+      drawGroupChart($('.group-chart', form), entry);
+    }
     else if (rm) { tags = tags.filter(t => t !== rm.dataset.removeTag); renderTags(); }
     else if (add) { tagInput.value = ''; addTags([add.dataset.addTag]); }
     else if (ev.target.closest('[data-close]')) closeSheet();
@@ -486,6 +547,7 @@ export function openSheet(entry = null, tab = 'summary') {
     if (mv) choosePaymentGroup(entry, mv.dataset.movePayment);
   });
 
+  if (!isNew) drawGroupChart($('.group-chart', form), entry);
   document.body.classList.add('modal-open');
   if (!sheet.open) sheet.showModal();
   sheet.scrollTop = 0;

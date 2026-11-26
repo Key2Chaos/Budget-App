@@ -1,6 +1,6 @@
 // The Overview tab: totals, chart, upcoming payments, where it goes, budgets, until payday.
 import * as C from './calc.js';
-import { buildChart } from './chart.js';
+import { buildChart, attachChart } from './chart.js';
 import * as R from './reports.js';
 import { localDay, FORECAST_MONTHS, state, $, esc, money, dueAmount, signed, compactMoney, monthShort, monthLong, monthYear, dayShort, fmtDate, relDays, tagFiltered, tagBar, view, wideScreen } from './core.js';
 import { accountName } from './importer.js';
@@ -295,9 +295,7 @@ export function renderOverview() {
   const svg = $('.chart-svg', view);
   const select = i => { state.sel = i; chartCtl.highlight(svg, i); updateReadout(currentIdx); };
   select(state.sel);
-  const onPointer = ev => select(chartCtl.indexAt(svg, ev.clientX));
-  svg.addEventListener('pointerdown', onPointer);
-  svg.addEventListener('pointermove', ev => { if (ev.buttons || ev.pointerType === 'touch') onPointer(ev); });
+  attachChart(svg, chartCtl, select);
 }
 
 // Wide screens: cards marked data-col="side" go in a narrower right-hand column. On a phone the
