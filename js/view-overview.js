@@ -18,7 +18,7 @@ export function renderOverview() {
         </div>
         <h2>Track what comes in and goes out</h2>
         <p>Add your bills, subscriptions, contracts and income. You'll see your monthly budget and how it changes over time.</p>
-        <button class="btn primary" data-action="add">Add your first group</button>
+        <button class="btn primary" data-action="add">Add your first payee group</button>
         <button class="btn" data-action="sample">Try it with sample data</button>
       </div>`;
     return;
@@ -32,14 +32,17 @@ export function renderOverview() {
       <strong>Back up your data</strong><span>Your budget lives only on this device. Save a copy to iCloud Drive.</span></button>` : '';
 
   if (!entries.length) {
-    view.innerHTML = `${backupBanner}${tagBar()}<p class="empty-small">No groups have all of these tags.</p>`;
+    view.innerHTML = `${backupBanner}${tagBar()}<p class="empty-small">No payee groups have all of these tags.</p>`;
     return;
   }
   const cur = C.monthTotals(entries, now.getFullYear(), now.getMonth());
-  const yearly = state.settings.period === 'year';
-  const per = yearly ? '/yr' : '/mo';
-  const k = yearly ? 12 : 1; // multiplier for per-month figures
-  const yr = R.annualTotals(entries, today);
+  const yearly = state.settings.period === 'year'; // a year at today's rates
+  const lastYear = state.settings.period === 'last12'; // what the last 12 full months came to
+  const per = yearly || lastYear ? '/yr' : '/mo';
+  const k = yearly || lastYear ? 12 : 1; // multiplier for per-month figures
+  const yr = yearly ? R.annualTotals(entries, today) : R.lastYearTotals(entries, now);
+  const months12 = R.lastTwelveMonths(now);
+  const lastYearLabel = `${monthYear.format(new Date(months12[0].y, months12[0].m, 1))} – ${monthYear.format(new Date(months12[11].y, months12[11].m, 1))}`;
   const filtered = state.tags.length > 0;
 
   // Chart range
@@ -125,8 +128,9 @@ export function renderOverview() {
   const cats = {};
   for (const e of entries) {
     if (e.type !== 'expense') continue;
-    // month: what this calendar month costs (incl. one-offs); year: 12 × today's monthly rate
-    const v = yearly ? 12 * R.monthlyAt(e, today) : C.monthAmount(e, now.getFullYear(), now.getMonth());
+    // month: what this calendar month costs (incl. one-offs); year: 12 × today's monthly rate;
+    // last 12 months: what each of those months came to
+    const v = yearly ? 12 * R.monthlyAt(e, today) : lastYear ? R.lastYearAmount(e, now) : C.monthAmount(e, now.getFullYear(), now.getMonth());
     if (v <= 0) continue;
     const keys = byTag ? (e.tags?.length ? e.tags.map(t => '#' + t) : ['Untagged']) : byGroup ? [e.name] : [e.category || 'Other'];
     for (const k of keys) cats[k] = (cats[k] || 0) + v;
@@ -134,10 +138,10 @@ export function renderOverview() {
   const allCats = Object.entries(cats).sort((a, b) => b[1] - a[1]);
   // By group there can be dozens: the biggest 12, and the rest together
   const catList = byGroup && allCats.length > 13
-    ? [...allCats.slice(0, 12), [`${allCats.length - 12} other groups`, allCats.slice(12).reduce((n, x) => n + x[1], 0)]]
+    ? [...allCats.slice(0, 12), [`${allCats.length - 12} other payee groups`, allCats.slice(12).reduce((n, x) => n + x[1], 0)]]
     : allCats;
   const catMax = catList.length ? catList[0][1] : 1;
-  const filterNote = state.tags.length ? `<p class="fine">Showing only groups tagged ${state.tags.map(t => '#' + esc(t)).join(' + ')}.</p>` : '';
+  const filterNote = state.tags.length ? `<p class="fine">Showing only payee groups tagged ${state.tags.map(t => '#' + esc(t)).join(' + ')}.</p>` : '';
 
   view.innerHTML = `
     ${backupBanner}
@@ -159,7 +163,7 @@ export function renderOverview() {
       </div></section>` : ''}
 
     ${checks.length ? `<section class="card" data-col="side" id="checks">
-      <div class="card-head"><h3>Check these groups</h3><span class="muted">from your bank imports</span></div>
+      <div class="card-head"><h3>Check these payee groups</h3><span class="muted">from your bank imports</span></div>
       <div class="list">${checks.map(({ e, stopped, schedule }) => `
         <div class="row check-item">
           <button class="row-main plain" data-action="edit" data-id="${e.id}">
@@ -175,18 +179,19 @@ export function renderOverview() {
               <button class="btn small" data-action="not-regular" data-id="${e.id}" data-freq="${schedule.frequency}">Not regular</button>`}</div>
         </div>`).join('')}
       </div>
-      <p class="fine">Stopped groups aren’t counted in the forecast until you say they’re still going.</p></section>` : ''}
+      <p class="fine">Stopped payee groups aren’t counted in the forecast until you say they’re still going.</p></section>` : ''}
 
     <section class="card summary">
       <div class="summary-top">
-        <div class="summary-head">${yearly ? 'Per year at today’s rates' : esc(monthLong.format(now))}</div>
+        <div class="summary-head">${yearly ? 'Per year at today’s rates' : lastYear ? esc(lastYearLabel) : esc(monthLong.format(now))}</div>
         <div class="seg small">
-          <button data-action="period" data-period="month" class="${yearly ? '' : 'on'}">Month</button>
-          <button data-action="period" data-period="year" class="${yearly ? 'on' : ''}">Year</button>
+          <button data-action="period" data-period="month" class="${yearly || lastYear ? '' : 'on'}">Month</button>
+          <button data-action="period" data-period="year" class="${yearly ? 'on' : ''}" aria-label="Per year at today’s rates">Year</button>
+          <button data-action="period" data-period="last12" class="${lastYear ? 'on' : ''}" aria-label="The last 12 months">12 mo</button>
         </div>
       </div>
       ${(() => {
-        const t = yearly ? yr : cur;
+        const t = yearly || lastYear ? yr : cur;
         return `<div class="summary-grid">
         <div><span class="k">Income</span><span class="v pos">${money(t.income)}</span></div>
         <div><span class="k">Expenses</span><span class="v neg">${money(t.expense)}</span></div>
@@ -195,6 +200,7 @@ export function renderOverview() {
       })()}
       <p class="fine">${yearly
         ? 'Everything running today × 12 (one-offs not included).'
+        : lastYear ? 'What the last 12 full months came to, one-offs included.'
         : 'Recurring items are spread evenly per month (e.g. yearly ÷ 12).'}</p>
     </section>
 
@@ -269,7 +275,7 @@ export function renderOverview() {
           <div class="row-amt ${good ? 'pos' : 'neg'}">${diff > 0 ? '+' : '−'}${money(Math.abs(diff) * k)}${per}</div>
         </button>`;
       }).join('')}</div>
-      <p class="fine">Change in ${yearly ? 'yearly' : 'monthly'} cost, your share. Green is good for you, red is not.</p>
+      <p class="fine">Change in ${yearly || lastYear ? 'yearly' : 'monthly'} cost, your share. Green is good for you, red is not.</p>
     </section>` : ''}
 
     ${contracts.length ? `<section class="card" data-col="side">
@@ -304,13 +310,13 @@ export function renderOverview() {
       <div class="card-head"><h3>Where it goes</h3>
         <div class="seg small">
           <button data-action="breakdown" data-by="category" class="${byTag || byGroup ? '' : 'on'}">Category</button>
-          <button data-action="breakdown" data-by="group" class="${byGroup ? 'on' : ''}">Group</button>
+          <button data-action="breakdown" data-by="group" class="${byGroup ? 'on' : ''}">Payee group</button>
           <button data-action="breakdown" data-by="tag" class="${byTag ? 'on' : ''}">Tag</button>
         </div></div>
-      <p class="fine">${yearly ? 'Per year at today’s rates' : 'This month'}${byTag ? ' · a group with several tags counts towards each' : ''}</p>
+      <p class="fine">${yearly ? 'Per year at today’s rates' : lastYear ? esc(lastYearLabel) : 'This month'}${byTag ? ' · a payee group with several tags counts towards each' : ''}</p>
       <div class="cats">${catList.map(([name, v]) => `
         <div class="cat">
-          <div class="cat-top"><span>${esc(name)}</span><span>${money(v)} <span class="muted">${Math.round((v / (yearly ? yr.expense : cur.expense)) * 100)}%</span></span></div>
+          <div class="cat-top"><span>${esc(name)}</span><span>${money(v)} <span class="muted">${Math.round((v / (yearly || lastYear ? yr.expense : cur.expense)) * 100)}%</span></span></div>
           <div class="bar"><span style="width:${((v / catMax) * 100).toFixed(1)}%"></span></div>
         </div>`).join('')}
       </div></section>` : ''}

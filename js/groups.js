@@ -59,7 +59,7 @@ export async function removeEmptyGroups(ids) {
 
 /** "· Kmart Bondi removed (empty)" for a toast. */
 export const removedNote = names => (names.length
-  ? ` · ${names.length === 1 ? `“${names[0]}”` : `${names.length} groups`} removed (empty)` : '');
+  ? ` · ${names.length === 1 ? `“${names[0]}”` : `${names.length} payee groups`} removed (empty)` : '');
 
 /**
  * The group a payee's payments belong in: its group if it has one, else the group already holding

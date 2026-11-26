@@ -35,6 +35,28 @@ export function annualTotals(entries, dateISO) {
   return { income, expense, net: income - expense };
 }
 
+/** The 12 full calendar months before the one `now` is in: [{ y, m }], oldest first. */
+export function lastTwelveMonths(now = new Date()) {
+  return Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - 12 + i, 1);
+    return { y: d.getFullYear(), m: d.getMonth() };
+  });
+}
+
+/** What one group came to over the last 12 full months, month by month as the chart counts it. */
+export const lastYearAmount = (e, now = new Date()) =>
+  lastTwelveMonths(now).reduce((s, { y, m }) => s + C.monthAmount(e, y, m), 0);
+
+/** Totals over the last 12 full months (what actually applied, one-offs included). */
+export function lastYearTotals(entries, now = new Date()) {
+  let income = 0, expense = 0;
+  for (const e of entries) {
+    const v = lastYearAmount(e, now);
+    if (e.type === 'income') income += v; else expense += v;
+  }
+  return { income, expense, net: income - expense };
+}
+
 // ---------- Budgets ----------
 
 /** Does an expense count towards a budget? (a group, a category or a tag, ignoring capitals) */
@@ -153,7 +175,7 @@ export function paymentsRows(entries, settings = {}) {
 
 /** Payees: name, group (or rule), the bank's spellings, and their payments. */
 export function payeesRows(entries, settings = {}) {
-  const head = ['Payee', 'Group', 'Bank spellings', 'Payments', 'Total'];
+  const head = ['Payee', 'Payee group', 'Bank spellings', 'Payments', 'Total'];
   const byId = new Map(entries.map(e => [e.id, e]));
   const rows = M.payeesOf(settings).map(p => {
     const keys = new Set(p.keys);

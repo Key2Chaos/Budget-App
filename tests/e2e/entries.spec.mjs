@@ -41,7 +41,7 @@ test('no set schedule: amount is optional "about per month", no due dates, spend
 
   await tab(page, 'entries');
   const fuel = row(page, 'Fuel');
-  await expect(fuel).toContainText('Variable');
+  await expect(fuel).toContainText('No set schedule');
   await expect(fuel).toContainText('about a month');
   await expect(fuel).toContainText('≈£180.00');
   await expect(fuel).not.toContainText('Next');

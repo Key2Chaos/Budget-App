@@ -97,7 +97,7 @@ export function pick({ title, items, suggested = [], create = null, name = '', p
  *   name      — the name offered for a new group before anything is typed.
  *   create    — false to offer only existing groups (no "+ Create").
  */
-export function pickGroup({ title = 'Choose a group', type = 'expense', suggested = [], exclude = [], name = '', create = true } = {}) {
+export function pickGroup({ title = 'Choose a payee group', type = 'expense', suggested = [], exclude = [], name = '', create = true } = {}) {
   const other = type === 'income' ? 'expense' : 'income';
   const label = { expense: 'Expenses', income: 'Income' };
   const groups = state.entries.filter(e => !exclude.includes(e.id)).sort((a, b) => a.name.localeCompare(b.name));
@@ -106,5 +106,5 @@ export function pickGroup({ title = 'Choose a group', type = 'expense', suggeste
     ...groups.filter(e => e.type === other).map(e => ({ id: e.id, label: e.name, sub: e.category || '',
       section: `${label[other]} (as a refund)` })),
   ];
-  return pick({ title, items, suggested, create: create ? 'Group' : null, name, placeholder: create ? undefined : 'Search groups' });
+  return pick({ title, items, suggested, create: create ? 'Payee group' : null, name, placeholder: create ? undefined : 'Search payee groups' });
 }

@@ -31,7 +31,7 @@ export async function renderSettings() {
         <div class="row-main"><div class="row-title">Budgets</div>
         <div class="row-sub">${(state.settings.budgets || []).length
           ? `${state.settings.budgets.length} monthly limit${state.settings.budgets.length === 1 ? '' : 's'}`
-          : 'Set monthly limits for a category or tag'}</div></div>
+          : 'Set monthly limits for a category, payee group or tag'}</div></div>
         <span class="chev" aria-hidden="true">›</span>
       </button>
       ${(() => {
@@ -64,7 +64,7 @@ export async function renderSettings() {
       </button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </section>
-    <p class="fine pad-x">${state.entries.length} groups · Last backup: ${state.settings.lastBackup ? fmtDate(localDay(state.settings.lastBackup)) : 'never'}.
+    <p class="fine pad-x">${state.entries.length} payee groups · Last backup: ${state.settings.lastBackup ? fmtDate(localDay(state.settings.lastBackup)) : 'never'}.
       Your data is stored only on this device. Saving a backup to iCloud Drive lets you restore it on another iPhone, iPad or Mac.</p>
 
     <div class="group-title">Bank statements</div>
@@ -90,13 +90,13 @@ export async function renderSettings() {
       </button>`;
       })() : ''}
       ${state.entries.some(e => e.fromImport) ? `<button class="row" data-action="open-tidy">
-        <div class="row-main"><div class="row-title">Tidy up groups</div>
-        <div class="row-sub">Merge groups that look like duplicates, and fill in missing categories</div></div>
+        <div class="row-main"><div class="row-title">Tidy up payee groups</div>
+        <div class="row-sub">Merge payee groups that look like duplicates, and fill in missing categories</div></div>
         <span class="chev" aria-hidden="true">›</span>
       </button>` : ''}
       ${entryRuleCount() ? `<button class="row" data-action="forget-rules">
         <div class="row-main"><div class="row-title accent">Forget remembered matches</div>
-        <div class="row-sub">${entryRuleCount()} payee${entryRuleCount() === 1 ? '' : 's'} currently go straight to a group. “Always ignore” choices are kept.</div></div>
+        <div class="row-sub">${entryRuleCount()} payee${entryRuleCount() === 1 ? '' : 's'} currently go straight to a payee group. “Always ignore” choices are kept.</div></div>
       </button>` : ''}
       ${(state.settings.importLog || []).length ? (() => {
         const b = state.settings.importLog.at(-1);
@@ -107,7 +107,7 @@ export async function renderSettings() {
       })() : ''}
       ${hasImportData() ? `<button class="row" data-action="undo-imports">
         <div class="row-main"><div class="row-title danger">Undo bank imports…</div>
-        <div class="row-sub">Remove imported payments, groups imports added, remembered matches and ignored transactions, to start again.</div></div>
+        <div class="row-sub">Remove imported payments, payee groups imports added, remembered matches and ignored transactions, to start again.</div></div>
       </button>` : ''}
     </section>
     <p class="fine pad-x">Download a CSV from your bank's website or app first. The file is read on this device only.

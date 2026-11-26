@@ -324,6 +324,23 @@ test('yearly totals at today’s rates (your share, no one-offs)', () => {
   assert.equal(Math.round(t.expense * 100) / 100, 155.88 + 89.9 + 8400 + 1300);
 });
 
+test('last 12 months: the full months before this one, added up as the chart counts them', () => {
+  const now = new Date(2026, 10, 21); // 21 Nov 2026
+  const months = R.lastTwelveMonths(now);
+  assert.deepEqual([months[0], months[11]], [{ y: 2025, m: 10 }, { y: 2026, m: 9 }]); // Nov 2025 – Oct 2026
+  const { entries } = reportData();
+  const t = R.lastYearTotals(entries, now);
+  const sum = type => entries.filter(e => e.type === type)
+    .reduce((s, e) => s + months.reduce((n, { y, m }) => n + C.monthAmount(e, y, m), 0), 0);
+  assert.ok(Math.abs(t.income - sum('income')) < 1e-6);
+  assert.ok(Math.abs(t.expense - sum('expense')) < 1e-6);
+  assert.ok(Math.abs(t.net - (t.income - t.expense)) < 1e-6);
+  // An ended bill still counts for the months it ran, unlike the year at today's rates
+  const gym = entries.find(e => e.name === 'Gym');
+  assert.ok(R.lastYearAmount(gym, now) > 0);
+  assert.equal(R.monthlyAt(gym, '2026-11-21'), 0);
+});
+
 test('budgets: spent, over and newly over', () => {
   const { entries, settings } = reportData();
   const [subs, streaming] = settings.budgets;

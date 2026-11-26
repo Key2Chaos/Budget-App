@@ -24,12 +24,12 @@ export function openBudgets() {
     <div class="sheet-head"><span></span><h2 tabindex="-1" autofocus>Budgets</h2>
       <button type="button" class="link strong" data-close>Done</button></div>
     <div class="sheet-body">
-      <p class="fine manage-help">A monthly limit for a category, a tag or a group. The Overview shows how much of it this month uses,
+      <p class="fine manage-help">A monthly limit for a category, a payee group or a tag. The Overview shows how much of it this month uses,
         and you'll get a warning when a change takes you over.</p>
       ${budgets.length ? `<section class="card list">${budgets.map(x => {
         const s = R.budgetStatus(state.entries, x, now.getFullYear(), now.getMonth());
         return `<div class="row static label-row">
-          <div class="row-main"><div class="row-title">${x.kind === 'tag' ? '#' : ''}${esc(budgetLabel(x))}${x.kind === 'group' ? ' <span class="muted">(group)</span>' : ''}</div>
+          <div class="row-main"><div class="row-title">${x.kind === 'tag' ? '#' : ''}${esc(budgetLabel(x))}${x.kind === 'group' ? ' <span class="muted">(payee group)</span>' : ''}</div>
             <div class="row-sub ${s.over ? 'neg' : ''}">${money(x.amount)}/mo · ${money(s.spent)} this month</div></div>
           <button type="button" class="btn small" data-edit-budget="${x.id}">Edit</button>
           <button type="button" class="btn small danger" data-delete-budget="${x.id}">Delete</button>
@@ -42,7 +42,7 @@ export function openBudgets() {
           <div class="seg small grow">
             <label><input type="radio" name="kind" value="category" ${kind === 'category' ? 'checked' : ''}><span>Category</span></label>
             <label><input type="radio" name="kind" value="tag" ${kind === 'tag' ? 'checked' : ''}><span>Tag</span></label>
-            <label><input type="radio" name="kind" value="group" ${kind === 'group' ? 'checked' : ''}><span>Group</span></label>
+            <label><input type="radio" name="kind" value="group" ${kind === 'group' ? 'checked' : ''}><span>Payee group</span></label>
           </div></div>
         <label class="field"><span>Name</span>
           <input name="label" list="dl-budget" placeholder="e.g. Subscriptions" value="${esc(b ? budgetLabel(b) : '')}" autocomplete="off" autocapitalize="none"></label>
@@ -90,8 +90,8 @@ export function openBudgets() {
       const amount = C.parseAmount(form.amount.value);
       const showErr = m => { $('#budgetError').textContent = m; };
       const group = k === 'group' ? state.entries.find(e => e.type === 'expense' && e.name.toLowerCase() === label.toLowerCase()) : null;
-      if (!label) return showErr('Please choose a category, tag or group.');
-      if (k === 'group' && !group) return showErr(`There's no group called “${label}”.`);
+      if (!label) return showErr('Please choose a category, payee group or tag.');
+      if (k === 'group' && !group) return showErr(`There's no payee group called “${label}”.`);
       if (!(amount > 0)) return showErr('Please enter a monthly limit.');
       const dup = budgets.find(y => y.kind === k && y.id !== editingBudget
         && (group ? y.groupId === group.id : y.label.toLowerCase() === label.toLowerCase()));

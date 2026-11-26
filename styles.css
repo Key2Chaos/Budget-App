@@ -159,7 +159,7 @@ button.row:active { background: var(--fill); }
   background: var(--seg-on); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 .seg label input { position: absolute; opacity: 0; pointer-events: none; }
-.seg.small button { padding: 4px 9px; font-size: 13px; }
+.seg.small button { padding: 4px 9px; font-size: 13px; white-space: nowrap; }
 
 /* ---------- Overview ---------- */
 .banner {

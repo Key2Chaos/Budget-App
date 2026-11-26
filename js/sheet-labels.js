@@ -31,13 +31,13 @@ export function openManage(kind = manageKind) {
         <div class="row static label-row">
           <div class="row-main">
             <div class="row-title">${kind === 'tag' ? '#' : ''}${esc(name)}</div>
-            <div class="row-sub">${n} group${n === 1 ? '' : 's'}</div>
+            <div class="row-sub">${n} payee group${n === 1 ? '' : 's'}</div>
           </div>
           <button type="button" class="btn small" data-rename="${esc(name)}">Rename</button>
           <button type="button" class="btn small danger" data-remove="${esc(name)}">Delete</button>
         </div>`).join('')}</section>`
       : `<p class="empty-small">No ${meta.title.toLowerCase()} in use yet.</p>`}
-      ${unlabelled ? `<p class="fine pad-x">${unlabelled} group${unlabelled === 1 ? ' has' : 's have'} no ${meta.noun}.</p>` : ''}
+      ${unlabelled ? `<p class="fine pad-x">${unlabelled} payee group${unlabelled === 1 ? ' has' : 's have'} no ${meta.noun}.</p>` : ''}
     </div>
   </div>`;
 
@@ -93,7 +93,7 @@ export async function renameLabel(kind, from) {
 export async function removeLabel(kind, name) {
   const meta = LABELS[kind];
   const n = labelCounts(kind).find(x => x.name === name)?.n || 0;
-  if (!confirm(`Remove the ${meta.noun} “${name}” from ${n} group${n === 1 ? '' : 's'}? The groups themselves are kept.`)) return;
+  if (!confirm(`Remove the ${meta.noun} “${name}” from ${n} payee group${n === 1 ? '' : 's'}? The payee groups themselves are kept.`)) return;
   await changeLabel(kind, name, null);
   state.tags = state.tags.filter(t => t.toLowerCase() !== name.toLowerCase());
   toast(`Removed from ${n}`);

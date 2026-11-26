@@ -1,11 +1,14 @@
 // The Entries tab: the list of entries, search and filters.
 import * as C from './calc.js';
+import * as R from './reports.js';
 import { state, esc, money, signed, fmtDate, tagFiltered, tagBar, view, sectionize } from './core.js';
 
 export function renderEntries() {
   const today = C.todayISO();
-  const yearly = state.settings.period === 'year';
-  const per = yearly ? '/yr' : '/mo';
+  const now = new Date();
+  const lastYear = state.settings.period === 'last12'; // what the last 12 full months came to
+  const yearly = state.settings.period === 'year' || lastYear;
+  const per = lastYear ? ' over the last 12 months' : yearly ? '/yr' : '/mo';
   const k = yearly ? 12 : 1;
   const q = state.search.trim().toLowerCase();
   const list = tagFiltered()
@@ -18,7 +21,9 @@ export function renderEntries() {
   const oneOff = list.filter(e => e.frequency === 'once').sort((a, b) => b.startDate.localeCompare(a.startDate));
   const ended = list.filter(e => C.isEnded(e, today)).sort((a, b) => C.stopDate(b).localeCompare(C.stopDate(a)));
 
-  const totalMonthly = type => recurring.filter(e => e.type === type).reduce((s, e) => s + C.monthlyEquivalent(e), 0);
+  // Per month (× k); over the last 12 months, what they came to (÷ 12, so × k gives it back)
+  const perMonth = e => (lastYear ? R.lastYearAmount(e, now) / 12 : C.monthlyEquivalent(e));
+  const totalMonthly = type => recurring.filter(e => e.type === type).reduce((s, e) => s + perMonth(e), 0);
 
   const row = e => {
     const inc = e.type === 'income';
@@ -40,7 +45,8 @@ export function renderEntries() {
     const f = once ? 'once' : C.isIrregular(e, today) ? 'monthly' : C.freqOn(e, today); // no schedule: shown per month
     if (!once && C.isIrregular(e, today) && !yearly) notes.push('about a month');
     // show the per-month (or per-year) figure when it differs from the amount shown
-    if (!once && C.monthlyEquivalent(e) > 0 && (yearly ? f !== 'yearly' : f !== 'monthly')) notes.push(`≈ ${money(C.monthlyEquivalent(e) * k)}${per}`);
+    if (lastYear && !once) { const v = R.lastYearAmount(e, now); if (v > 0) notes.push(`${money(v)} last 12 mo`); }
+    else if (!once && C.monthlyEquivalent(e) > 0 && (yearly ? f !== 'yearly' : f !== 'monthly')) notes.push(`≈ ${money(C.monthlyEquivalent(e) * k)}${per}`);
     const tags = e.tags?.length
       ? `<div class="row-tags">${e.tags.map(t => `<span class="chip tiny">#${esc(t)}</span>`).join('')}</div>` : '';
     return `<button class="row" data-action="edit" data-id="${e.id}">
@@ -52,7 +58,7 @@ export function renderEntries() {
     ? `<div class="group-title">${title}${extra}</div><section class="card list">${items.map(row).join('')}</section>` : '';
 
   const totals = state.filter === 'all'
-    ? ` <span class="muted">${money((totalMonthly('income') - totalMonthly('expense')) * k)}${per} net</span>`
+    ? ` <span class="muted">${money((totalMonthly('income') - totalMonthly('expense')) * k)}${lastYear ? ` net${per}` : `${per} net`}</span>`
     : ` <span class="muted">${money(totalMonthly(state.filter) * k)}${per}</span>`;
 
   view.innerHTML = `
@@ -64,7 +70,7 @@ export function renderEntries() {
       <input type="search" id="search" placeholder="Search names, notes, #tags" value="${esc(state.search)}" autocomplete="off">
       ${tagBar()}
     </div>
-    ${list.length ? '' : `<p class="empty-small">${state.entries.length ? 'Nothing matches.' : 'No groups yet. Tap + to add one.'}</p>`}
+    ${list.length ? '' : `<p class="empty-small">${state.entries.length ? 'Nothing matches.' : 'No payee groups yet. Tap + to add one.'}</p>`}
     ${group('Recurring', recurring, recurring.length ? totals : '')}
     ${group('One-off', oneOff)}
     ${group('Ended', ended)}

@@ -146,6 +146,13 @@ test.describe('reports', () => {
     await tab(page, 'entries');
     await expect(page.locator('.group-title').first()).toContainText('/yr net');
     await tab(page, 'overview');
+    // The last 12 full months, as they were (one-offs and ended bills included)
+    await page.locator('[data-action=period][data-period=last12]').click();
+    await expect(page.locator('.summary-head')).toHaveText(/Nov 2025 – Oct 2026/);
+    await expect(page.locator('.summary .fine')).toContainText('last 12 full months');
+    await tab(page, 'entries');
+    await expect(page.locator('.row-amt small', { hasText: 'last 12 mo' }).first()).toBeVisible();
+    await tab(page, 'overview');
     await page.locator('[data-action=period][data-period=month]').click();
     await expect(page.locator('.summary-head')).toHaveText('November 2026');
   });

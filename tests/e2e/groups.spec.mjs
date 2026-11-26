@@ -26,7 +26,7 @@ async function importWithNewGroup(page) {
   await picker(page).locator('.pick-search').fill('School things');
   await picker(page).getByRole('button', { name: /Create “School things”/ }).click();
   await expect(picker(page)).toHaveCount(0);
-  await expect(txn(page, 'KMART').locator('select option:checked')).toHaveText('School things (new group)');
+  await expect(txn(page, 'KMART').locator('select option:checked')).toHaveText('School things (new payee group)');
   await imp(page).locator('.sheet-head [data-apply]').click();
   await expect(page.locator('#toast')).toContainText('Logged');
 }
@@ -43,7 +43,7 @@ test('import: type a new group in the picker; a similar payee is suggested for i
   const sydney = txn(page, 'KMART SYDNEY');
   await expect(sydney.locator('select option:checked')).toHaveText('School things');
   await expect(sydney).toContainText('like Kmart Bondi');
-  await expect(txn(page, 'UBER TRIP').locator('select option:checked')).toHaveText('+ New group: Uber Trip'); // not Uber Eats
+  await expect(txn(page, 'UBER TRIP').locator('select option:checked')).toHaveText('+ New payee group: Uber Trip'); // not Uber Eats
 
   // Typing an existing group's name picks it rather than making a second one
   await txn(page, 'UBER EATS').locator('select').selectOption('pick');
@@ -63,7 +63,7 @@ test('Settings → Payees: change group (payments move), merge spellings, always
 
   // Change Kmart's group: its payment moves to Groceries
   await payees.locator('[data-payee]', { hasText: 'Kmart Bondi' }).click();
-  await page.getByRole('button', { name: 'Choose a group for Kmart Bondi' }).click();
+  await page.getByRole('button', { name: 'Choose a payee group for Kmart Bondi' }).click();
   await picker(page).locator('.pick-search').fill('Groc');
   await picker(page).getByRole('button', { name: /^Groceries/ }).click();
   await expect(page.locator('#toast')).toContainText('Kmart Bondi → Groceries · 1 payment moved');
@@ -94,7 +94,7 @@ test('deleting a group moves its imported payments to Ungrouped, and its payees 
   await openWithSample(page);
   await importWithNewGroup(page);
   await editEntry(page, 'School things');
-  await page.getByRole('button', { name: 'Delete group' }).click();
+  await page.getByRole('button', { name: 'Delete payee group' }).click();
   await expect(page.locator('#toast')).toContainText('1 payment moved to Ungrouped spending');
   expect(page.dialogs.at(-1)).toContain('Its 1 imported payment will move to Ungrouped spending');
   await tab(page, 'entries');
@@ -121,7 +121,7 @@ test('one payment can move to another group without moving its payee', async ({ 
   await editEntry(page, 'School things');
   await sheetPage(page, 'transactions');
   const kmart = page.locator('#payments .pay-row', { hasText: 'KMART' });
-  await kmart.getByRole('button', { name: 'Move this payment to another group' }).click();
+  await kmart.getByRole('button', { name: 'Move this payment to another payee group' }).click();
   await picker(page).getByRole('button', { name: /^Groceries/ }).click();
   await expect(page.locator('#toast')).toContainText('Moved to Groceries');
   await expect(page.locator('#sheet [role=tab][data-page=transactions]')).toHaveAttribute('aria-selected', 'true');
@@ -141,7 +141,7 @@ test('budgets and "Where it goes" by group; a group shows how it was paid', asyn
   await page.locator('#budgetForm [name=label]').fill('netflix');
   await page.locator('#budgetForm [name=amount]').fill('30');
   await page.locator('[data-save-budget]').click();
-  await expect(page.locator('#budgets')).toContainText('Netflix (group)');
+  await expect(page.locator('#budgets')).toContainText('Netflix (payee group)');
   await page.locator('#budgets [data-close]').click();
 
   await tab(page, 'overview');
@@ -201,13 +201,13 @@ test('a group with one payee can be merged into another group', async ({ page })
   await sheetPage(page, 'accounts');
   await expect(page.getByRole('button', { name: /^Move Kmart Bondi/ })).toBeVisible(); // even its only payee can move
   await sheetPage(page, 'summary');
-  await page.getByRole('button', { name: 'Merge into another group…' }).click();
+  await page.getByRole('button', { name: 'Merge into another payee group…' }).click();
   await expect(picker(page).locator('[data-create]')).toHaveCount(0);       // only existing groups
   await picker(page).locator('.pick-search').fill('groc');
   await picker(page).getByRole('button', { name: /^Groceries/ }).click();
   expect(page.dialogs.at(-1)).toContain('Merge “School things” into “Groceries”? Its 1 payment moves there');
   await expect(page.locator('#toast')).toContainText('Merged into Groceries · 1 payment moved');
-  await expect(page.locator('#sheet h2')).toHaveText('Edit group');
+  await expect(page.locator('#sheet h2')).toHaveText('Edit payee group');
   await expect(page.locator('#sheet [name=name]')).toHaveValue('Groceries');
   await page.locator('#sheet .sheet-head [data-close]').click();
 
@@ -266,7 +266,7 @@ test('start-up tidies empty groups earlier moves left behind, once; groups and s
     group('d', 'Gym (set by me)', { fromImport: true, scheduleSetByYou: true, frequency: 'monthly', variable: false,
       prices: [{ from: '2026-10-01', amount: 30, frequency: 'monthly' }] })]);
   await page.reload();
-  await expect(page.locator('#toast')).toContainText('Tidied up · 2 groups removed (empty)');
+  await expect(page.locator('#toast')).toContainText('Tidied up · 2 payee groups removed (empty)');
   await tab(page, 'entries');
   await expect(row(page, 'Left behind')).toHaveCount(0);
   await expect(row(page, 'Bupa Hi')).toHaveCount(0);

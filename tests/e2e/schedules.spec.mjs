@@ -42,7 +42,7 @@ async function seed(page) {
 
 test('Overview: groups that stopped, and Variable groups paid on a schedule, are pointed out', async ({ page }) => {
   await seed(page);
-  const checks = card(page, 'Check these groups');
+  const checks = card(page, 'Check these payee groups');
   const item = name => checks.locator('.check-item', { has: page.locator('.row-title', { hasText: new RegExp(`^${name}$`) }) });
   await expect(item('Gym')).toContainText('Looks like it stopped · last paid 5 June, usually monthly');
   await expect(item('Magazine')).toContainText('Looks like it stopped');

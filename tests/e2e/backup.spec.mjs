@@ -23,7 +23,7 @@ test('import an old (v1) backup: everything arrives and survives a reload', asyn
   await page.goto('/');
   await tab(page, 'settings');
   await page.locator('#importFile').setInputFiles(fixturePath('v1-2026-11-initial-release.json'));
-  await expect.poll(() => page.dialogs.at(-1)).toContain('Import 9 groups?');
+  await expect.poll(() => page.dialogs.at(-1)).toContain('Import 9 payee groups?');
   await tab(page, 'entries');
   await expect(page.locator('.row[data-action=edit]')).toHaveCount(9);
   await page.reload();
