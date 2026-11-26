@@ -89,6 +89,11 @@ export async function renderSettings() {
         <span class="chev" aria-hidden="true">›</span>
       </button>`;
       })() : ''}
+      ${state.entries.some(e => e.fromImport) ? `<button class="row" data-action="open-tidy">
+        <div class="row-main"><div class="row-title">Tidy up groups</div>
+        <div class="row-sub">Merge groups that look like duplicates, and fill in missing categories</div></div>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>` : ''}
       ${entryRuleCount() ? `<button class="row" data-action="forget-rules">
         <div class="row-main"><div class="row-title accent">Forget remembered matches</div>
         <div class="row-sub">${entryRuleCount()} payee${entryRuleCount() === 1 ? '' : 's'} currently go straight to a group. “Always ignore” choices are kept.</div></div>

@@ -11,6 +11,7 @@ import { reload, render } from './render.js';
 import { payeeOfPayment, accountOfPayment } from './sheet-entry.js';
 
 export let imp = null; // the import being reviewed
+const NEW_ACCOUNT = '+new'; // the account picker's "New account…"
 
 /**
  * Each import account has catch-all entries, "Everyday spending – <account>" and "Other income –
@@ -304,22 +305,16 @@ export async function startBankImport(fileList) {
   }
   if (!files.length) return;
 
-  // Pick the account each file most likely belongs to: one its transactions were already imported
-  // into, else one with the suggested name, else (for a single file) the most recently used. Two new
-  // files with the same suggested name that cover the same dates are two different accounts.
+  // Which account each file is from is only assumed when its transactions were imported into one
+  // before; otherwise you choose one, or name a new one. Until then the file works under the name
+  // suggested from its bank (two new files of the same kind over the same dates under two names), so
+  // the review can be shown, but nothing imports until every file has an account.
   const known = knownIds();
-  const overlaps = (a, b) => a.span && b.span && a.span[0] <= b.span[1] && b.span[0] <= a.span[1];
   for (const F of files) {
     const seen = accountKeys().find(k => Bank.withIds(F.txns, k).some(t => known.has(t.id)));
-    let account = seen || findAccount(F.guess) || (files.length === 1 && accountKeys()[0]) || F.guess;
-    if (!seen) {
-      let n = 1;
-      while (files.some(G => G !== F && G.account?.toLowerCase() === account.toLowerCase() && overlaps(F, G))) {
-        account = `${F.guess} ${++n}`;
-      }
-    }
-    F.account = account;
-    F.newAccount = !findAccount(account);
+    F.account = seen || unusedName(F, files);
+    F.chosen = !!seen;
+    F.newAccount = !seen && !accountKeys().length; // no accounts yet: just a name box
     delete F.txns;
   }
   imp = { files, newGroups: new Set(), named: new Map() };
@@ -329,6 +324,16 @@ export async function startBankImport(fileList) {
   setters.slice(1).forEach(F => { F.useBalance = false; });
   buildImport();
   openImport();
+}
+
+/** A name for a file's account that isn't an account yet, nor another file's over the same dates. */
+function unusedName(F, files) {
+  const overlaps = (a, b) => a.span && b.span && a.span[0] <= b.span[1] && b.span[0] <= a.span[1];
+  let name = F.guess, n = 1;
+  while (findAccount(name) || files.some(G => G !== F && G.account?.toLowerCase() === name.toLowerCase() && overlaps(F, G))) {
+    name = `${F.guess} ${++n}`;
+  }
+  return name;
 }
 
 /** (Re)work out transactions, duplicates, suggestions and recurring groups for the current settings. */
@@ -401,14 +406,16 @@ export function buildImport() {
 
 /**
  * A category for a new group: the one a very similar payee's group has ("Kmart Sydney" → the group
- * "Kmart Bondi" is in), else that of a group with a very similar name, else none.
+ * "Kmart Bondi" is in), else that of a group with a very similar name, else one from a well-known
+ * name in it or its payee keys (Woolworths → Groceries), else none.
  */
-export function suggestCategory(name, type) {
+export function suggestCategory(name, type, keys = []) {
   for (const p of M.payeesOf(state.settings)) {
     const e = p.groupId && state.entries.find(x => x.id === p.groupId);
     if (e?.category && e.type === type && Bank.similarPayees(name, M.payeeTitle(p))) return e.category;
   }
-  return state.entries.find(x => x.category && x.type === type && Bank.similarPayees(name, x.name))?.category || '';
+  return state.entries.find(x => x.category && x.type === type && Bank.similarPayees(name, x.name))?.category
+    || (type === 'expense' ? Bank.keywordCategory(name, ...keys) : '');
 }
 
 /**
@@ -658,12 +665,15 @@ export function openImport() {
     return `<section class="card form imp-filecard" data-file="${i}">
         <div class="field"><span>File</span><div class="imp-file">${esc(F.fileName)}<br><span class="muted">${F.total} transactions${F.range ? ` · ${fmtDate(F.range[0])} – ${fmtDate(F.range[1])}` : ''}</span></div></div>
         ${accountKeys().length ? `<label class="field"><span>Account</span>
-          <select id="impAccountPick${sfx}" data-account-pick="${i}" aria-label="Account${many ? ` for ${esc(F.fileName)}` : ''}">
-            ${accountKeys().map(k => `<option value="${esc(k)}" ${!F.newAccount && k === F.account ? 'selected' : ''}>${esc(accountName(k))}</option>`).join('')}
-            <option value="" ${F.newAccount ? 'selected' : ''}>New account…</option>
+          <select id="impAccountPick${sfx}" data-account-pick="${i}" data-guess="${esc(F.guess)}" aria-label="Account${many ? ` for ${esc(F.fileName)}` : ''}">
+            ${!F.chosen && !F.newAccount ? '<option value="" selected disabled>Choose an account…</option>' : ''}
+            ${accountKeys().map(k => `<option value="${esc(k)}" ${F.chosen && !F.newAccount && k === F.account ? 'selected' : ''}>${esc(accountName(k))}</option>`).join('')}
+            <option value="${NEW_ACCOUNT}" ${F.newAccount ? 'selected' : ''}>New account…</option>
           </select></label>` : ''}
         ${F.newAccount ? `<label class="field"><span>${accountKeys().length ? 'New account' : 'Account'}</span>
-          <input id="impAccount${sfx}" data-account-name="${i}" value="${esc(F.account)}" autocomplete="off" aria-label="Account name${many ? ` for ${esc(F.fileName)}` : ''}"></label>` : ''}
+          <input id="impAccount${sfx}" data-account-name="${i}" value="${F.chosen ? esc(F.account) : ''}" placeholder="e.g. ${esc(F.account)}"
+            autocomplete="off" aria-label="Account name${many ? ` for ${esc(F.fileName)}` : ''}"></label>` : ''}
+        ${F.needAccount && !F.chosen ? `<p class="fine warn" id="impNeedAccount${sfx}">${F.newAccount ? 'Name this account' : 'Choose which account this statement is from'} to import it.</p>` : ''}
         <div class="field"><span>Dates are</span>
           <div class="seg small grow">
             <button type="button" data-order="DMY" data-file="${i}" class="${F.order === 'DMY' ? 'on' : ''}">Day/Month</button>
@@ -776,17 +786,21 @@ export function openImport() {
     if (ev.target.dataset.accountPick != null) {
       const F = fileOf(ev.target);
       const k = ev.target.value;
-      F.newAccount = !k;
-      F.account = k || (findAccount(F.guess) ? `${F.guess} 2` : F.guess);
+      F.newAccount = k === NEW_ACCOUNT;
+      F.chosen = !F.newAccount; // a new account needs its name first
+      F.account = F.newAccount ? unusedName(F, imp.files) : k;
       if (!F.balanceTouched) F.useBalance = balanceByDefault(F) && !imp.files.some(G => G !== F && G.useBalance);
-      buildImport(); return openImportKeepScroll();
+      buildImport(); openImportKeepScroll();
+      if (F.newAccount) $(`#impAccount${imp.files.indexOf(F) ? `-${imp.files.indexOf(F)}` : ''}`)?.focus();
+      return;
     }
     if (ev.target.dataset.accountName != null) {
       const F = fileOf(ev.target);
       const name = cleanLabel(ev.target.value);
-      if (!name) return openImportKeepScroll();
+      if (!name) { F.chosen = false; return openImportKeepScroll(); }
       const existing = findAccount(name); // typed the name of an account that exists: use it
       F.account = existing || name;
+      F.chosen = true;
       F.newAccount = !existing;
       if (!F.balanceTouched) F.useBalance = balanceByDefault(F) && !imp.files.some(G => G !== F && G.useBalance);
       buildImport(); return openImportKeepScroll();
@@ -871,6 +885,18 @@ export function openImportKeepScroll() {
 }
 
 export async function applyImport() {
+  // Every file needs an account first
+  const unset = imp.files.filter(F => !F.chosen);
+  if (unset.length) {
+    unset.forEach(F => { F.needAccount = true; });
+    openImportKeepScroll();
+    const i = imp.files.indexOf(unset[0]), sfx = i ? `-${i}` : '';
+    const field = $(`#impAccount${sfx}`) || $(`#impAccountPick${sfx}`);
+    field?.scrollIntoView({ block: 'center' });
+    field?.focus();
+    toast(unset.length === 1 && imp.files.length === 1 ? 'Choose an account first' : `Choose an account for each statement first`);
+    return;
+  }
   const now = new Date().toISOString();
   const accounts = [...new Set(imp.files.map(F => F.account))];
   // Everything this import adds is tagged or recorded, so "Undo last import" can take it back out.
@@ -898,7 +924,7 @@ export async function applyImport() {
     const id = uid();
     const start = g.txns[0].date;
     changed.set(id, {
-      id, type: g.type, name: g.name, category: suggestCategory(g.name, g.type), method: methodOf(g.txns.at(-1)), frequency: g.frequency, startDate: start,
+      id, type: g.type, name: g.name, category: suggestCategory(g.name, g.type, [g.payee]), method: methodOf(g.txns.at(-1)), frequency: g.frequency, startDate: start,
       contractEnd: null, endsAtExpiry: false, endDate: null, notes: `Added from a bank import (${g.payee})`, tags: [], fromImport: true, importBatch: batch,
       prices: [{ from: start, amount: g.variable ? null : g.amount, frequency: g.frequency }],
       variable: g.variable, manual: false, share: 100, noticeDays: null, payments: [], createdAt: now, updatedAt: now,
@@ -920,7 +946,7 @@ export async function applyImport() {
     const lead = txns.find(t => t.payee === payee && t.amount < 0) || txns.find(t => t.payee === payee) || txns[0];
     changed.set(id, {
       id, type: lead.amount < 0 ? 'expense' : 'income', name: makeName(payee, lead),
-      category: suggestCategory(makeName(payee, lead), lead.amount < 0 ? 'expense' : 'income'),
+      category: suggestCategory(makeName(payee, lead), lead.amount < 0 ? 'expense' : 'income', [...new Set(txns.map(t => t.payee))]),
       method: methodOf(lead), frequency, startDate: start, contractEnd: null, endsAtExpiry: false, endDate: null,
       notes: `Added from a bank import (${payee})`, tags: [], fromImport: true, importBatch: batch,
       prices: [{ from: start, amount: null, frequency }],

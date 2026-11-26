@@ -1,7 +1,7 @@
 // Accounts, payees and groups (docs/DESIGN.md): the picker, Settings → Payees and Accounts, deleting
 // a group, budgets and breakdowns by group, and upgrading saved data from format 4. Made-up data.
 import { fileURLToPath } from 'node:url';
-import { test, expect, openEmpty, openWithSample, tab, row, editEntry, sheetPage, readFixture } from './helpers.mjs';
+import { test, expect, openEmpty, openWithSample, tab, row, editEntry, sheetPage, readFixture, nameAccounts } from './helpers.mjs';
 
 test.use({ locale: 'en-AU', timezoneId: 'Australia/Sydney' });
 const csv = name => fileURLToPath(new URL(`../fixtures/bank/${name}`, import.meta.url));
@@ -9,10 +9,12 @@ const imp = page => page.locator('#import');
 const txn = (page, text) => imp(page).locator('.imp-row', { has: page.locator('.imp-desc', { hasText: text }) });
 const picker = page => page.locator('#picker');
 
-async function chooseFile(page, name) {
+/** Open a statement for import, giving it the account it's offered unless `keep` (to check that first). */
+async function chooseFile(page, name, { keep = false } = {}) {
   await tab(page, 'settings');
   await page.locator('#bankFile').setInputFiles(csv(name));
   await expect(imp(page)).toBeVisible();
+  if (!keep) await nameAccounts(page);
 }
 
 /** Import the card statement with Kmart sent to a new group typed in the picker, "School things". */
@@ -63,7 +65,7 @@ test('Settings → Payees: change group (payments move), merge spellings, always
   await payees.locator('[data-payee]', { hasText: 'Kmart Bondi' }).click();
   await page.getByRole('button', { name: 'Choose a group for Kmart Bondi' }).click();
   await picker(page).locator('.pick-search').fill('Groc');
-  await picker(page).locator('[data-pick]', { hasText: 'Groceries' }).click();
+  await picker(page).getByRole('button', { name: /^Groceries/ }).click();
   await expect(page.locator('#toast')).toContainText('Kmart Bondi → Groceries · 1 payment moved');
   await expect(page.locator('#payee')).toContainText('Groceries');
 
@@ -109,7 +111,7 @@ test('deleting a group moves its imported payments to Ungrouped, and its payees 
   await editEntry(page, 'Ungrouped spending');
   await sheetPage(page, 'accounts');
   await page.getByRole('button', { name: /^Move Kmart Bondi/ }).click();
-  await picker(page).locator('[data-pick]', { hasText: 'Groceries' }).click();
+  await picker(page).getByRole('button', { name: /^Groceries/ }).click();
   await expect(page.locator('#toast')).toContainText('to Groceries');
 });
 
@@ -120,7 +122,7 @@ test('one payment can move to another group without moving its payee', async ({ 
   await sheetPage(page, 'transactions');
   const kmart = page.locator('#payments .pay-row', { hasText: 'KMART' });
   await kmart.getByRole('button', { name: 'Move this payment to another group' }).click();
-  await picker(page).locator('[data-pick]', { hasText: 'Groceries' }).click();
+  await picker(page).getByRole('button', { name: /^Groceries/ }).click();
   await expect(page.locator('#toast')).toContainText('Moved to Groceries');
   await expect(page.locator('#sheet [role=tab][data-page=transactions]')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#payments .pay-row')).toHaveCount(0);
@@ -202,7 +204,7 @@ test('a group with one payee can be merged into another group', async ({ page })
   await page.getByRole('button', { name: 'Merge into another group…' }).click();
   await expect(picker(page).locator('[data-create]')).toHaveCount(0);       // only existing groups
   await picker(page).locator('.pick-search').fill('groc');
-  await picker(page).locator('[data-pick]', { hasText: 'Groceries' }).click();
+  await picker(page).getByRole('button', { name: /^Groceries/ }).click();
   expect(page.dialogs.at(-1)).toContain('Merge “School things” into “Groceries”? Its 1 payment moves there');
   await expect(page.locator('#toast')).toContainText('Merged into Groceries · 1 payment moved');
   await expect(page.locator('#sheet h2')).toHaveText('Edit group');

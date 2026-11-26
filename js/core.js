@@ -8,7 +8,7 @@ import { cleanLabel, normalizeEntry } from './schema.js';
 // ---------- Constants ----------
 export const CATEGORIES = {
   expense: ['Housing', 'Utilities', 'Subscriptions', 'Phone & Internet', 'Insurance', 'Transport',
-            'Groceries', 'Health', 'Entertainment', 'Debt', 'Savings', 'Other'],
+            'Groceries', 'Eating out', 'Health', 'Entertainment', 'Debt', 'Savings', 'Other'],
   income: ['Salary', 'Freelance', 'Benefits', 'Investments', 'Rental', 'Gift', 'Other'],
 };
 /** The phone's region, e.g. "AU" from "en-AU". */

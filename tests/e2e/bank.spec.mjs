@@ -1,6 +1,6 @@
 // Importing a CommBank-style statement (made-up data), as an Australian user would.
 import { fileURLToPath } from 'node:url';
-import { test, expect, openWithSample, tab, row, editEntry, sheetPage, fixturePath } from './helpers.mjs';
+import { test, expect, openWithSample, tab, row, editEntry, sheetPage, fixturePath, nameAccounts } from './helpers.mjs';
 
 test.use({ locale: 'en-AU', timezoneId: 'Australia/Sydney' });
 const csv = name => fileURLToPath(new URL(`../fixtures/bank/${name}`, import.meta.url));
@@ -8,10 +8,12 @@ const imp = page => page.locator('#import');
 // a transaction row, found by its description (not the entry names in its dropdown)
 const txn = (page, text) => imp(page).locator('.imp-row', { has: page.locator('.imp-desc', { hasText: text }) });
 
-async function chooseFile(page, name) {
+/** Open a statement for import, giving it the account it's offered unless `keep` (to check that first). */
+async function chooseFile(page, name, { keep = false } = {}) {
   await tab(page, 'settings');
   await page.locator('#bankFile').setInputFiles(csv(name));
   await expect(imp(page)).toBeVisible();
+  if (!keep) await nameAccounts(page);
 }
 
 test('credit card statement: matches, recurring, ignore payee, import, no duplicates on re-import', async ({ page }) => {
@@ -144,6 +146,43 @@ test('accounts: pick from previous ones, rename without losing duplicate detecti
   await page.locator('#impAccount').blur();
   await expect(page.locator('#impAccountPick option:checked')).toHaveText('Everyday card');
   await expect(txn(page, 'NETFLIX.COM')).toHaveCount(0);
+});
+
+test('the account is yours to name the first time, and to choose after that unless it’s recognised', async ({ page }) => {
+  await openWithSample(page);
+  await chooseFile(page, 'commbank-savings.csv', { keep: true });
+  // First import: an empty name box, with the bank's name only as a hint
+  await expect(page.locator('#impAccountPick')).toHaveCount(0);
+  await expect(page.locator('#impAccount')).toHaveValue('');
+  await expect(page.locator('#impAccount')).toHaveAttribute('placeholder', 'e.g. CommBank account');
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#impNeedAccount')).toContainText('Name this account');
+  await expect(page.locator('#impAccount')).toBeFocused();
+  await expect(imp(page)).toBeVisible();                                       // nothing imported yet
+  await page.locator('#impAccount').fill('Joint savings');
+  await page.locator('#impAccount').blur();
+  await expect(page.locator('#impNeedAccount')).toHaveCount(0);
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+
+  // A statement from somewhere new: choose an account, or a new one
+  await chooseFile(page, 'commbank-credit-card.csv', { keep: true });
+  await expect(page.locator('#impAccountPick option:checked')).toHaveText('Choose an account…');
+  await expect(page.locator('#impAccount')).toHaveCount(0);
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#impNeedAccount')).toContainText('Choose which account');
+  await page.locator('#impAccountPick').selectOption({ label: 'New account…' });
+  await expect(page.locator('#impAccount')).toHaveValue('');
+  await expect(page.locator('#impAccount')).toBeFocused();
+  await page.locator('#impAccount').fill('Visa');
+  await page.locator('#impAccount').blur();
+  await imp(page).locator('.sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+
+  // The same statement again is recognised: its account is already chosen
+  await chooseFile(page, 'commbank-credit-card.csv', { keep: true });
+  await expect(page.locator('#impAccountPick option:checked')).toHaveText('Visa');
+  await expect(imp(page)).toContainText('already imported or ignored — skipped');
 });
 
 test('name a payee: shown on this and future imports, choices kept, used in payment notes', async ({ page }) => {
@@ -416,8 +455,7 @@ test('transfers: a card payment already imported as spending is taken out when t
 
   // The card statement has the other side: +$250 a day later
   await chooseFile(page, 'commbank-credit-card.csv');
-  await page.locator('#impAccountPick').selectOption('');
-  await expect(page.locator('#impAccount')).toHaveValue('CommBank credit card');
+  await expect(page.locator('#impAccount')).toHaveValue('CommBank credit card');     // a new account
   const pay = txn(page, 'PAYMENT RECEIVED');
   await expect(pay.locator('select option:checked')).toHaveText('Transfer between my accounts');
   await expect(pay).toContainText('↔ CommBank account 19 Nov');
@@ -552,8 +590,10 @@ test('several files at once: each has its own account, and transfers between the
   await expect(imp(page)).toBeVisible();
   await expect.poll(() => page.dialogs.at(-1)).toMatch(/“v1-2026-11-initial-release.json” wasn’t recognised as a bank statement and will be left out/);
   await expect(imp(page).locator('h2')).toHaveText('Import 2 statements');
-  await expect(page.locator('#impAccount')).toHaveValue('CommBank account');
-  await expect(page.locator('#impAccount-1')).toHaveValue('CommBank credit card');
+  await expect(page.locator('#impAccount')).toHaveValue('');                       // no accounts yet: name each one
+  await expect(page.locator('#impAccount')).toHaveAttribute('placeholder', 'e.g. CommBank account');
+  await expect(page.locator('#impAccount-1')).toHaveAttribute('placeholder', 'e.g. CommBank credit card');
+  await nameAccounts(page);
   await expect(page.locator('#impCheck')).toContainText('The amounts add up');      // the savings file, on its own
   await expect(page.locator('#impCheck-1')).toHaveCount(0);                        // the card file has no balances
 
@@ -579,15 +619,15 @@ test('several files: same kind of account over the same dates are two accounts; 
   await openWithSample(page);
   await tab(page, 'settings');
   await page.locator('#bankFile').setInputFiles([csv('commbank-savings.csv'), csv('second-account.csv')]);
-  await expect(page.locator('#impAccount')).toHaveValue('CommBank account');
-  await expect(page.locator('#impAccount-1')).toHaveValue('CommBank account 2');    // 12–16 Nov overlaps 10 Aug – 15 Nov
+  await expect(page.locator('#impAccount')).toHaveAttribute('placeholder', 'e.g. CommBank account');
+  await expect(page.locator('#impAccount-1')).toHaveAttribute('placeholder', 'e.g. CommBank account 2');  // 12–16 Nov overlaps 10 Aug – 15 Nov
   await imp(page).locator('.sheet-head [data-close]').click();
   await expect(page.locator('#sheet #import')).toHaveCount(0);                      // closed, and Settings redrawn
 
   await page.locator('#bankFile').setInputFiles([csv('commbank-savings.csv'), csv('savings-card-payoff.csv')]);
   await expect(imp(page)).toBeVisible();
-  await expect(page.locator('#impAccount')).toHaveValue('CommBank account');
-  await expect(page.locator('#impAccount-1')).toHaveValue('CommBank account');      // 18–19 Nov: the next statement
+  await expect(page.locator('#impAccount')).toHaveAttribute('placeholder', 'e.g. CommBank account');
+  await expect(page.locator('#impAccount-1')).toHaveAttribute('placeholder', 'e.g. CommBank account');  // 18–19 Nov: the next statement
   // Only one statement can set "Balance now"
   await expect(page.locator('#impBalance-1')).toBeChecked();                        // the newer one
   await expect(page.locator('#impBalance')).not.toBeChecked();

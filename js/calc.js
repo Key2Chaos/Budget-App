@@ -99,23 +99,39 @@ export function estimateOn(e, dateISO = todayISO()) {
 const loggedIn = (e, start, end) => (e.payments || []).filter(x => x.date >= start && x.date <= end).reduce((s, x) => s + x.amount, 0);
 const monthBounds = (y, m0) => [iso(new Date(y, m0, 1)), iso(new Date(y, m0 + 1, 0))];
 
+/** Complete months averaged for "about per month": a year, so one big month doesn't set the forecast. */
+export const IRREGULAR_MONTHS = 12;
+/** Payments in those months before the average is used: one or two big purchases aren't a habit. */
+export const IRREGULAR_MIN = 3;
+
 /**
- * "About per month" for a bill with no set schedule: the average of the last three complete
- * months since payments started being logged (months with nothing logged count as 0), else the
- * amount typed in, else what's been logged so far this month.
+ * "About per month" for a bill with no set schedule: the average of the last IRREGULAR_MONTHS
+ * complete months since payments started being logged (months with nothing logged count as 0),
+ * when there were at least IRREGULAR_MIN payments in them; else the amount typed in (none: 0).
+ * With no complete month yet, what's been logged so far this month. Nothing for a group marked
+ * "Don't forecast" (a project or a trip: spending that won't happen again).
  */
 function irregularMonthly(e, dateISO, p) {
+  if (e.noForecast) return 0;
   const pays = paymentsOf(e).filter(x => x.date >= p.from && x.date <= dateISO);
   const d = parse(dateISO);
   if (pays.length) {
     const first = pays[0].date.slice(0, 7);
     const months = [];
-    for (let i = 1; i <= 3; i++) {
+    let from = null;
+    for (let i = 1; i <= IRREGULAR_MONTHS; i++) {
       const [s, end] = monthBounds(d.getFullYear(), d.getMonth() - i);
       if (s.slice(0, 7) < first) break;
       months.push(loggedIn(e, s, end));
+      from = s;
     }
-    if (months.length) return months.reduce((a, b) => a + b, 0) / months.length;
+    if (months.length) {
+      // A purchase or two isn't a habit: forecast only what's been paid at least IRREGULAR_MIN times
+      const [, lastEnd] = monthBounds(d.getFullYear(), d.getMonth() - 1);
+      const times = pays.filter(x => x.amount > 0 && x.date >= from && x.date <= lastEnd).length;
+      if (times < IRREGULAR_MIN) return p.amount ?? 0;
+      return months.reduce((a, b) => a + b, 0) / months.length;
+    }
   }
   if (p.amount != null) return p.amount;
   const [s] = monthBounds(d.getFullYear(), d.getMonth());
@@ -128,11 +144,61 @@ function planPerMonth(e, dateISO) {
   return estimateOn(e, dateISO) * FREQ[p.frequency].perMonth;
 }
 
-/** Normalised monthly amount, your share (e.g. yearly / 12, weekly * 52 / 12). */
+/** Normalised monthly amount, your share (e.g. yearly / 12, weekly * 52 / 12). Nothing once it looks stopped. */
 export function monthlyEquivalent(e, onISO = todayISO()) {
-  if (e.frequency === 'once') return 0;
+  if (e.frequency === 'once' || looksStopped(e, onISO)) return 0;
   return shareOf(e) * planPerMonth(e, onISO);
 }
+
+// ---------- Bills that look like they've stopped ----------
+
+/** The latest transaction imported into each account (lowercase key → date). Set by setImportedUntil. */
+let importedUntil = new Map();
+
+/**
+ * Note how far the bank imports go, account by account. A bill is only "missing" payments up to
+ * the end of the statements you've imported, not up to today. Call with all entries after loading.
+ */
+export function setImportedUntil(entries) {
+  importedUntil = new Map();
+  for (const e of entries) for (const p of e.payments || []) {
+    if (!p.source || !p.account) continue;
+    const k = String(p.account).toLowerCase();
+    if (!(importedUntil.get(k) >= p.date)) importedUntil.set(k, p.date);
+  }
+}
+
+/**
+ * A bill on a set schedule that seems to have stopped: its payments come from bank imports, and
+ * the statements imported since its last one have missed two payments in a row (plus a little
+ * slack). Bills you mark paid by hand are left alone: there, a missed payment is overdue. Saying
+ * it's still going (`keepGoingFrom`) starts the count again from that date.
+ * Until you end it or say it's still going, it isn't forecast.
+ */
+export function looksStopped(e, onISO = todayISO()) {
+  if (e.frequency === 'once' || e.manual || e.catchAll) return false;
+  const f = FREQ[freqOn(e, onISO)];
+  if (!f || f.irregular) return false;
+  const stop = stopDate(e);
+  if (stop && stop <= onISO) return false; // already ended
+  const pays = paymentsOf(e).filter(p => p.date <= onISO);
+  if (!pays.some(p => p.source && p.account)) return false;
+  const asOf = importedUntilFor(e, onISO);
+  const since = [pays.at(-1).date, e.keepGoingFrom || ''].sort().at(-1);
+  const period = f.days || f.months * 30.4;
+  return daysBetween(since, asOf) > 2 * period + Math.max(7, period / 4);
+}
+
+/** How far the bank statements go for an entry's account (its last imported payment's), capped at onISO. */
+export function importedUntilFor(e, onISO = todayISO()) {
+  const last = paymentsOf(e).filter(p => p.source && p.account && p.date <= onISO).at(-1);
+  if (!last) return onISO;
+  const until = importedUntil.get(String(last.account).toLowerCase()) || last.date;
+  return until < onISO ? until : onISO;
+}
+
+/** The last payment of a bill that looks stopped (as on onISO), or null: the plan isn't counted after it. */
+export const stoppedAfter = (e, onISO = todayISO()) => (looksStopped(e, onISO) ? paymentsOf(e).filter(p => p.date <= onISO).at(-1).date : null);
 
 /**
  * Logged payments as non-overlapping spans of days. Each payment covers the period leading up to
@@ -184,9 +250,10 @@ export function monthAmount(e, y, m0) {
     actual += (s.amount * overlap) / s.days;
     covered += overlap;
   }
-  // …and the plan for any days no logged payment covers.
+  // …and the plan for any days no logged payment covers (none after it seems to have stopped).
   let planned = 0;
-  const stop = stopDate(e);
+  const today = todayISO();
+  const stop = stopDate(e) || stoppedAfter(e, end < today ? end : today);
   if (!(e.startDate > end || (stop && stop < start))) {
     const ref = stop && stop < end ? stop : end;
     planned = planPerMonth(e, ref) * Math.max(0, 1 - covered / monthDays);
@@ -282,7 +349,8 @@ export function nextDue(e, fromISO = todayISO()) {
     s = segs[i + 1].from;
     if (FREQ[segs[i + 1].frequency].irregular) return nextDue(e, s);
   }
-  const stop = stopDate(e);
+  const today = todayISO();
+  const stop = stopDate(e) || stoppedAfter(e, fromISO < today ? fromISO : today);
   return stop && s > stop ? null : s;
 }
 

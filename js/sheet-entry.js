@@ -9,7 +9,7 @@ import { STARTER_TAGS, canonicalLabel, categoryOptions, methodOptions, state, $,
   FORECAST_MONTHS, compactMoney, monthShort, monthLong, monthYear, wideScreen } from './core.js';
 import { buildChart, attachChart } from './chart.js';
 import { pickGroup } from './picker.js';
-import { movePayments, removeEmptyGroups, removedNote } from './groups.js';
+import { movePayments, mergeGroups, removeEmptyGroups, removedNote } from './groups.js';
 import { reload } from './render.js';
 import { isCatchAll, accountKeys, accountName, getRules, setRules, groupSuggestions, suggestCategory } from './importer.js';
 
@@ -356,9 +356,10 @@ export function openSheet(entry = null, tab = 'summary') {
         const est = C.estimateOn({ ...e, variable: true }, C.todayISO());
         const logged = (e.payments || []).filter(p => p.amount > 0).length;
         const noSchedule = C.isIrregular(e, C.todayISO());
-        const now = est <= 0 ? 'No estimate yet. Log a payment below to set one.'
+        const now = noSchedule && e.noForecast ? 'Not forecast: only the payments you log count.'
+          : est <= 0 ? (noSchedule && logged ? `Not forecast yet: fewer than ${C.IRREGULAR_MIN} payments in the last year.` : 'No estimate yet. Log a payment below to set one.')
           : noSchedule ? `Current estimate: <strong>≈${money(est)}</strong> a month — ${logged
-            ? 'the average of your last three complete months of logged payments.'
+            ? `the monthly average of your logged payments over the last ${C.IRREGULAR_MONTHS} complete months.`
             : 'the amount entered earlier, until you log payments.'} With no set schedule there are no due dates.`
           : `Current estimate: <strong>≈${money(est)}</strong> per payment — ${logged
             ? 'worked out from your logged payments (average of the latest three).'
@@ -374,6 +375,8 @@ export function openSheet(entry = null, tab = 'summary') {
           <input type="checkbox" name="variable" ${e.variable ? 'checked' : ''}></label>
         <label class="field toggle"><span>Manual payment</span>
           <input type="checkbox" name="manual" ${e.manual ? 'checked' : ''}></label>
+        <label class="field toggle irregular-only"><span>Don’t forecast<br><span class="muted small-text">a project or one-off spend: count only what’s been paid</span></span>
+          <input type="checkbox" name="noForecast" ${e.noForecast ? 'checked' : ''}></label>
         <label class="field"><span>Your share</span>
           <input name="share" inputmode="decimal" value="${e.share ?? 100}" aria-label="Your share in percent"><i class="suffix">%</i></label>
       </section>
@@ -644,6 +647,7 @@ export async function saveForm(form, existing) {
     prices,
     variable: !!f.variable,
     manual: !!f.manual,
+    noForecast: !once && C.FREQ[frequency]?.irregular === true && !!f.noForecast,
     share: share >= 100 ? 100 : share,
     noticeDays: once || !noticeDays ? null : noticeDays,
     payments,
@@ -676,14 +680,7 @@ export async function mergeGroup(entry) {
   if (!dest) return;
   const pays = entry.payments || [];
   if (!confirm(`Merge “${entry.name}” into “${dest.name}”? ${pays.length ? `Its ${pays.length === 1 ? '1 payment moves' : `${pays.length} payments move`} there, and so do its payees. ` : ''}“${entry.name}” is then removed.`)) return;
-  await movePayments(pays.map(p => ({ p, e: entry })), dest);
-  await db.deleteEntry(entry.id);
-  state.settings.payees = M.payeesOf(state.settings).map(p => (p.groupId === entry.id ? { ...p, groupId: dest.id } : p));
-  const budgets = state.settings.budgets || [];
-  const hasOwn = budgets.some(b => b.kind === 'group' && b.groupId === dest.id);
-  state.settings.budgets = budgets.flatMap(b => (b.kind === 'group' && b.groupId === entry.id
-    ? (hasOwn ? [] : [{ ...b, groupId: dest.id, label: dest.name }]) : [b]));
-  await saveSettings();
+  await mergeGroups(entry, dest);
   await reload();
   const fresh = state.entries.find(e => e.id === dest.id);
   if (fresh) openSheet(fresh, 'summary'); else closeSheet();

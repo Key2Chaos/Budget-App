@@ -11,8 +11,20 @@ import { forgetRules, openUndoImports, undoLastImport, renameAccount, startBankI
 import { openManage } from './sheet-labels.js';
 import { openAccounts } from './sheet-accounts.js';
 import { openPayees } from './sheet-payees.js';
+import { openTidy } from './sheet-tidy.js';
 import { sweepEmptyGroups, removedNote } from './groups.js';
+import * as Bank from './bank.js';
 import { exportBackup, exportCSV, importBackup, sampleEntries } from './backup.js';
+
+/** Change one group, save it and say what happened. */
+async function updateGroup(id, change, message) {
+  const e = state.entries.find(x => x.id === id);
+  if (!e) return;
+  const next = { ...change(e), updatedAt: new Date().toISOString() };
+  await db.putEntry(next);
+  await reload();
+  toast(message(next));
+}
 
 // ---------- Global events ----------
 const actions = {
@@ -46,6 +58,7 @@ const actions = {
   'rename-account': t => renameAccount(t.dataset.key),
   'open-accounts': () => openAccounts(),
   'open-payees': () => openPayees(),
+  'open-tidy': () => openTidy(),
   'forget-rules': forgetRules,
   'undo-imports': openUndoImports,
   'undo-last-import': undoLastImport,
@@ -68,6 +81,14 @@ const actions = {
     await reload();
     toast(e.type === 'income' ? 'Marked as received' : 'Marked as paid');
   },
+  // "Check these groups" on the Overview
+  'end-group': t => updateGroup(t.dataset.id, e => ({ ...e, endDate: t.dataset.end }), e => `${e.name} ended ${fmtDate(t.dataset.end)}`),
+  'keep-group': t => updateGroup(t.dataset.id, e => ({ ...e, keepGoingFrom: C.todayISO() }), e => `${e.name} kept going`),
+  'set-schedule': t => updateGroup(t.dataset.id, e => {
+    const s = Bank.suggestSchedule(e);
+    return s ? Bank.withSchedule(e, s) : e;
+  }, e => `${e.name} set to ${C.FREQ[e.frequency].label.toLowerCase()}`),
+  'not-regular': t => updateGroup(t.dataset.id, e => ({ ...e, scheduleDismissed: t.dataset.freq }), e => `${e.name} stays variable`),
   'tags-clear': () => { state.tags = []; state.sel = null; render(); },
   breakdown: t => { state.breakdown = t.dataset.by; render(); },
   'go-settings': () => { state.tab = 'settings'; render(); },

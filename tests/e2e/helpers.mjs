@@ -81,3 +81,27 @@ export async function save(page) {
 export async function expectNoHorizontalScroll(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 }
+
+/**
+ * On the import sheet, give every statement that has no account yet the one it was offered: an
+ * existing account with the suggested name, else a new account named as the name box suggests.
+ */
+export async function nameAccounts(page) {
+  for (let i = 0; ; i++) {
+    const sfx = i ? `-${i}` : '';
+    const card = page.locator(`#import .imp-filecard[data-file="${i}"]`);
+    if (!(await card.count())) return;
+    const pick = page.locator(`#impAccountPick${sfx}`);
+    if (await pick.count() && await pick.inputValue() === '') {
+      const guess = await pick.getAttribute('data-guess');
+      const labels = await pick.locator('option').allTextContents();
+      await pick.selectOption({ label: labels.includes(guess) ? guess : 'New account…' });
+    }
+    const name = page.locator(`#impAccount${sfx}`);
+    if (await name.count() && await name.inputValue() === '') {
+      await name.fill((await name.getAttribute('placeholder')).replace(/^e\.g\. /, ''));
+      await name.blur();
+    }
+    await expect(page.locator(`#impNeedAccount${sfx}`)).toHaveCount(0);
+  }
+}

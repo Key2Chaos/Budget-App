@@ -260,10 +260,23 @@ export function payeeKey(description, legacy = false) {
   return words.join(' ') || String(description).toUpperCase().replace(/\s+/g, ' ').slice(0, 24);
 }
 
-/** "NETFLIX COM MELBOURNE" → "Netflix" (a readable name for a new entry). */
+/** Shop platforms that put a short code before the shop: "SP BOODY" (Shopify), "LS THE SHED" (Lightspeed), "DD DOORDASH". */
+const NAME_PREFIX = new Set(['SP', 'LS', 'LSP', 'KPAY', 'DD']);
+/** Words a name doesn't stop on: "Best And …", "Eb St …". */
+const JOINERS = new Set(['AND', 'OF', 'ON', 'BY', 'AT', 'IN', 'ST', 'THE', 'DE', 'DU', 'LA', 'LE', 'EL']);
+/** Words a name doesn't stop after: "The …", "Mrs …", "Dr …". */
+const TITLES = new Set(['THE', 'DR', 'MR', 'MRS', 'MS', 'ST']);
+
+/**
+ * A readable name for a new group: "DISNEY PLUS SYDNEY" → "Disney Plus", "THE LOCKER ROOM" →
+ * "The Locker Room", "BEST AND LESS" → "Best And Less", "SP BOODY" → "Boody". Two words, or three
+ * when two would stop mid-name.
+ */
 export function payeeName(key) {
-  const w = [...new Set(key.split(' ').filter(x => !['COM', 'NET', 'ORG', 'WWW'].includes(x)))]; // "GOOGLE GOOGLE" → "Google"
-  return (w.slice(0, 2).join(' ') || key).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  let w = [...new Set(key.split(' ').filter(x => !['COM', 'NET', 'ORG', 'WWW'].includes(x)))]; // "GOOGLE GOOGLE" → "Google"
+  if (w.length > 1 && NAME_PREFIX.has(w[0])) w = w.slice(1);
+  const n = w.length > 2 && (TITLES.has(w[0]) || JOINERS.has(w[1])) ? 3 : 2;
+  return (w.slice(0, n).join(' ') || key).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
 /** Short hash (FNV-1a) for ids. */
@@ -430,6 +443,29 @@ function editDistance(a, b) {
 }
 
 /**
+ * Well-known Australian businesses → a category, for groups no similar payee has one for yet.
+ * Checked in order (so "Uber Eats" is eating out before "Uber" could be anything else).
+ */
+const KEYWORD_CATEGORIES = [
+  ['Groceries', /\b(WOOLWORTHS|WOOLIES\w*|COLES|ALDI|IGA|HARRIS FARM|COSTCO|FOODWORKS)\b/],
+  ['Eating out', /\b(MCDONALDS?|MACCAS|KFC|HUNGRY JACKS?|DOMINOS|PIZZA HUT|SUBWAY|GUZMAN Y GOMEZ|NANDOS|EL JANNAH|OPORTO|RED ROOSTER|GRILL D|DOORDASH|UBER EATS|MENULOG|SUSHI|CAFE|COFFEE|BAKERY|KEBABS?|CHATIME)\b/],
+  ['Transport', /\b(ELEVEN|AMPOL|CALTEX|SHELL|BP|EG (GROUP|FUEL\w*)|UNITED PETROLEUM|METRO PETROLEUM|LINKT|E ?TOLL|TRANSPORTFORNSW|OPAL|UBER TRIP|PARKING)\b/],
+  ['Health', /\b(CHEMIST|PHARMACY|PRICELINE|TERRY WHITE|DENTAL|MEDICAL|PATHOLOGY|PHYSIO\w*|OPTOMETRIST|SPECSAVERS)\b/],
+  ['Insurance', /\b(INSURANCE|AAMI|NRMA|BUDGET DIRECT|BUPA|MEDIBANK|HCF|NIB|ALLIANZ|YOUI|GIO)\b/],
+  ['Phone & Internet', /\b(TELSTRA|OPTUS|VODAFONE|TPG|AUSSIE BROADBAND|BELONG|AMAYSIM|BOOST MOBILE)\b/],
+  ['Utilities', /\b(ORIGIN ENERGY|AGL|ENERGYAUSTRALIA|GLOBIRD\w*|RED ENERGY|ALINTA|SYDNEY WATER)\b/],
+  ['Housing', /\b(\w+ (CITY )?COUNCIL|STRATA)\b/], // council rates
+  ['Subscriptions', /\b(NETFLIX|SPOTIFY|DISNEY PLUS|STAN|BINGE|KAYO|YOUTUBE|PATREON|AUDIBLE|PUREVPN|ICLOUD)\b/],
+  ['Entertainment', /\b(HOYTS|EVENT CINEMAS|CINEMAS?|TICKETEK|TICKETMASTER|ZOO|STEAM|PLAYSTATION|NINTENDO|EB GAMES)\b/],
+];
+
+/** A category for a payee from well-known names in it (its name, key or bank text), else ''. */
+export function keywordCategory(...texts) {
+  const s = texts.join(' ').toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ');
+  return KEYWORD_CATEGORIES.find(([, re]) => re.test(s))?.[0] || '';
+}
+
+/**
  * Whether two payee names are very likely the same business: the same name, one is the other plus
  * more words ("Kmart" / "Kmart Bondi"), the same distinctive first word ("Kmart Bondi" / "Kmart
  * Sydney" — branches in different towns), or a near-identical spelling ("Woolworth" / "Woolworths").
@@ -448,6 +484,47 @@ export function similarPayees(nameA, nameB) {
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
   if (short.every((w, i) => long[i] === w)) return true;
   return a[0].length >= 5;
+}
+
+/**
+ * Stricter than similarPayees, for whole groups: the same name, one is the other plus more words
+ * ("Sushi" / "Sushi Ryu"), or a near-identical spelling. A town in common isn't enough
+ * ("Penrith Council" / "Penrith RSL").
+ */
+function sameName(a, b) { // word lists, from words()
+  if (!a.length || !b.length) return false;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (short.every((w, i) => long[i] === w)) return !GENERIC_FIRST.has(short[0]) || short.length > 1;
+  const sa = a.join(' '), sb = b.join(' '), n = Math.max(sa.length, sb.length), most = Math.max(1, Math.floor(n * 0.12));
+  return n >= 6 && Math.abs(sa.length - sb.length) <= most && editDistance(sa, sb) <= most;
+}
+
+/**
+ * Groups that look like the same thing twice: same type, with the same name (see sameName) or a
+ * payee in common (e.g. "Bupa" and "Bupa Health", or two groups an import made for one shop). One-offs and
+ * catch-alls aren't included, nor pairs you said aren't the same (notSame: [[idA, idB]]).
+ * Returns [{ keep, merge: [groups] }]: `keep` is the one you set up, else the one with most payments.
+ */
+export function findDuplicateGroups(entries, notSame = []) {
+  const apart = new Set(notSame.map(([a, b]) => [a, b].sort().join('|')));
+  const keys = e => new Set((e.payments || []).map(p => p.payee).filter(Boolean));
+  const rank = e => (e.scheduleSetByYou || !e.fromImport ? 1e6 : 0) + (e.payments || []).length;
+  const list = entries.filter(e => e.frequency !== 'once' && !e.catchAll)
+    .map(e => ({ e, keys: keys(e), words: words(e.name) }))
+    .sort((a, b) => rank(b.e) - rank(a.e) || a.e.name.localeCompare(b.e.name));
+  const same = (a, b) => a.e.type === b.e.type && !apart.has([a.e.id, b.e.id].sort().join('|'))
+    && (sameName(a.words, b.words) || [...a.keys].some(k => b.keys.has(k)));
+  const out = [];
+  const taken = new Set();
+  for (const lead of list) {
+    if (taken.has(lead.e.id)) continue;
+    const merge = list.filter(x => x !== lead && !taken.has(x.e.id) && same(lead, x)).map(x => x.e);
+    if (!merge.length) continue;
+    taken.add(lead.e.id);
+    merge.forEach(e => taken.add(e.id));
+    out.push({ keep: lead.e, merge });
+  }
+  return out;
 }
 
 /**
@@ -507,8 +584,8 @@ export function suggestSimilar(txns, known) {
  */
 export function guessMethod(description, accountKind = '') {
   const s = String(description).toUpperCase();
-  if (/\bBPAY\b/.test(s)) return 'BPAY';
-  if (/\bDIRECT DEBIT\b|\bDD\b/.test(s)) return 'Direct debit';
+  if (/\bBPAY/.test(s)) return 'BPAY'; // also "BPAYN PENRITH CITY"
+  if (/\bDIRECT DEBIT\b|\bDD\b(?!\s*\*)/.test(s)) return 'Direct debit'; // not "DD *DOORDASH": DoorDash's card prefix
   if (/\b(OSKO|PAYID|NPP)\b/.test(s)) return 'PayID';
   if (/\b(ATM|CASH OUT|WITHDRAWAL)\b/.test(s)) return 'Cash';
   if (accountKind === 'credit') return 'Credit card';
@@ -563,12 +640,78 @@ const FREQ_BANDS = [
   ['weekly', 7, 1], ['fortnightly', 14, 2], ['fourweekly', 28, 1], ['monthly', 30.4, 4],
   ['quarterly', 91, 8], ['halfyearly', 182, 12], ['yearly', 365, 15],
 ];
+/** At least this many payments before a payee counts as regular: two purchases months apart are a coincidence. */
+export const MIN_REGULAR = 3;
+/** Share of the gaps between payments that must fit the schedule (an extra top-up or one late bill doesn't spoil it). */
+const FIT = 0.8;
+const median = xs => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
 /**
- * Groups of unmatched transactions to the same payee that repeat on a regular schedule.
+ * The regular schedule a list of payments follows, or null. payments: [{ date, amount }] (either
+ * sign; only the size counts). Needs MIN_REGULAR payments on different days, most of the gaps a
+ * steady weekly … yearly period, and, given `asOf`, the last one recent enough that it hasn't
+ * stopped (no more than about one and a half periods before `asOf`).
+ * Weekly and quarterly need one more payment: three in a row a week or three months apart happen by chance.
+ * Returns { frequency, amount, variable, last }: amount is the latest payment, or the average of
+ * the last three when they vary.
+ */
+export function scheduleOf(payments, asOf = null) {
+  const ts = [...payments].sort((a, b) => a.date.localeCompare(b.date));
+  const gaps = ts.slice(1).map((t, i) => C.daysBetween(ts[i].date, t.date)).filter(g => g > 0);
+  if (gaps.length < MIN_REGULAR - 1) return null;
+  const band = FREQ_BANDS.find(([, days, tol]) => Math.abs(median(gaps) - days) <= tol);
+  if (!band) return null;
+  const [frequency, days, tol] = band;
+  if ((frequency === 'quarterly' || frequency === 'weekly') && gaps.length < MIN_REGULAR) return null;
+  const slack = tol * 1.5 + 1;
+  // A payment that came late (or early) makes one long and one short gap that add up to two periods
+  let fit = 0;
+  for (let i = 0; i < gaps.length; i++) {
+    if (Math.abs(gaps[i] - days) <= slack) fit++;
+    else if (i + 1 < gaps.length && Math.abs(gaps[i] + gaps[i + 1] - 2 * days) <= slack
+      && [gaps[i], gaps[i + 1]].every(g => g >= days / 2 && g <= days * 1.5)) { fit += 2; i++; }
+  }
+  if (fit < Math.ceil(gaps.length * FIT)) return null;
+  const last = ts.at(-1).date;
+  if (asOf && C.daysBetween(last, asOf) > days * 1.5 + slack) return null;
+  const amounts = ts.map(t => Math.abs(t.amount));
+  const variable = Math.max(...amounts) / Math.min(...amounts) > 1.05;
+  const recent = amounts.slice(-3);
+  return { frequency, amount: variable ? Math.round(recent.reduce((a, b) => a + b, 0) / recent.length * 100) / 100 : amounts.at(-1),
+    variable, last };
+}
+
+/**
+ * A schedule for a group with none set (Variable) whose payments have come regularly: "Bupa, monthly
+ * on the 13th". Null when there's no clear one, it has stopped, the group isn't forecast, or you've
+ * already said no to this frequency (`scheduleDismissed`).
+ */
+export function suggestSchedule(e, today = C.todayISO()) {
+  if (e.frequency === 'once' || !C.isIrregular(e, today) || e.noForecast || e.catchAll || C.isEnded(e, today)) return null;
+  const pays = (e.payments || []).filter(p => p.amount > 0 && p.date <= today);
+  const s = scheduleOf(pays, C.importedUntilFor(e, today));
+  return s && e.scheduleDismissed !== s.frequency ? s : null;
+}
+
+/**
+ * The group on that schedule, from its first payment (so the due day is the day it's usually paid),
+ * as a fixed amount or, when the amounts vary, estimated from its payments.
+ */
+export function withSchedule(e, s) {
+  const first = [...(e.payments || [])].filter(p => p.amount > 0).sort((a, b) => a.date.localeCompare(b.date))[0]?.date || e.startDate;
+  const g = { ...e, frequency: s.frequency, startDate: first, variable: s.variable, scheduleSetByYou: true, scheduleDismissed: undefined,
+    prices: [{ from: first, amount: s.variable ? null : s.amount, frequency: s.frequency }] };
+  return { ...g, payments: (e.payments || []).map(p => ({ ...p, due: p.amount > 0 ? nearestDue(g, p.date) : p.due })) };
+}
+
+/**
+ * Groups of unmatched transactions to the same payee that repeat on a regular schedule (see
+ * scheduleOf) and are still going at the end of the statement. Money in (refunds) and money out
+ * are looked at separately, so a refund doesn't count as a payment.
  * Returns [{ key, name, txns, frequency, amount, variable, type }], most frequent first.
  */
 export function findRecurring(txns) {
+  const asOf = txns.reduce((d, t) => (t.date > d ? t.date : d), '');
   const groups = new Map();
   for (const t of txns) {
     const k = `${t.amount < 0 ? 'out' : 'in'}|${t.payee}`;
@@ -577,19 +720,12 @@ export function findRecurring(txns) {
   }
   const out = [];
   for (const [k, list] of groups) {
-    if (list.length < 2) continue;
+    const s = scheduleOf(list, asOf);
+    if (!s) continue;
     const ts = [...list].sort((a, b) => a.date.localeCompare(b.date));
-    const gaps = ts.slice(1).map((t, i) => C.daysBetween(ts[i].date, t.date)).filter(g => g > 0);
-    if (!gaps.length) continue;
-    const median = [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)];
-    const band = FREQ_BANDS.find(([, days, tol]) => Math.abs(median - days) <= tol);
-    if (!band) continue;
-    if (!gaps.every(g => Math.abs(g - band[1]) <= band[2] * 1.5 + 1)) continue;
-    const amounts = ts.map(t => Math.abs(t.amount));
-    const min = Math.min(...amounts), max = Math.max(...amounts);
     out.push({
-      key: k, payee: ts[0].payee, name: ts.find(t => t.name)?.name || payeeName(ts[0].payee), txns: ts, frequency: band[0],
-      amount: amounts.at(-1), variable: max / min > 1.05, type: k.startsWith('out') ? 'expense' : 'income',
+      key: k, payee: ts[0].payee, name: ts.find(t => t.name)?.name || payeeName(ts[0].payee), txns: ts, frequency: s.frequency,
+      amount: s.amount, variable: s.variable, type: k.startsWith('out') ? 'expense' : 'income',
     });
   }
   return out.sort((a, b) => b.txns.length - a.txns.length);

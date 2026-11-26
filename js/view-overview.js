@@ -1,5 +1,6 @@
 // The Overview tab: totals, chart, upcoming payments, where it goes, budgets, until payday.
 import * as C from './calc.js';
+import * as Bank from './bank.js';
 import { buildChart, attachChart } from './chart.js';
 import * as R from './reports.js';
 import { localDay, FORECAST_MONTHS, state, $, esc, money, dueAmount, signed, compactMoney, monthShort, monthLong, monthYear, dayShort, fmtDate, relDays, tagFiltered, tagBar, view, wideScreen } from './core.js';
@@ -89,6 +90,12 @@ export function renderOverview() {
   // Manual payments to make (overdue + next 14 days)
   const pay = C.toPay(entries, today);
 
+  // Groups whose bank payments say something's changed: stopped coming, or on a schedule after all
+  const checks = [
+    ...entries.filter(e => C.looksStopped(e, today)).map(e => ({ e, stopped: C.stoppedAfter(e, today) })),
+    ...entries.map(e => ({ e, schedule: Bank.suggestSchedule(e, today) })).filter(x => x.schedule),
+  ];
+
   // Upcoming automatic payments (next 14 days) — manual ones are in "To pay" above
   const horizon = C.addDaysISO(today, 14);
   const upcoming = entries
@@ -150,6 +157,25 @@ export function renderOverview() {
           <button class="btn small" data-action="mark-paid" data-id="${e.id}" data-due="${due}">${e.type === 'income' ? 'Received' : 'Mark paid'}</button>
         </div>`).join('')}
       </div></section>` : ''}
+
+    ${checks.length ? `<section class="card" data-col="side" id="checks">
+      <div class="card-head"><h3>Check these groups</h3><span class="muted">from your bank imports</span></div>
+      <div class="list">${checks.map(({ e, stopped, schedule }) => `
+        <div class="row check-item">
+          <button class="row-main plain" data-action="edit" data-id="${e.id}">
+            <div class="row-title">${esc(e.name)}</div>
+            <div class="row-sub">${stopped
+              ? `Looks like it stopped · last paid ${fmtDate(stopped)}, usually ${esc(C.FREQ[C.freqOn(e, today)].label.toLowerCase())}`
+              : `Looks ${esc(C.FREQ[schedule.frequency].label.toLowerCase())} · ${schedule.variable ? 'about ' : ''}${money(schedule.amount)} each time`}</div>
+          </button>
+          <div class="check-btns">${stopped
+            ? `<button class="btn small" data-action="end-group" data-id="${e.id}" data-end="${stopped}">End it</button>
+              <button class="btn small" data-action="keep-group" data-id="${e.id}">Still going</button>`
+            : `<button class="btn small" data-action="set-schedule" data-id="${e.id}">Set ${esc(C.FREQ[schedule.frequency].label.toLowerCase())}</button>
+              <button class="btn small" data-action="not-regular" data-id="${e.id}" data-freq="${schedule.frequency}">Not regular</button>`}</div>
+        </div>`).join('')}
+      </div>
+      <p class="fine">Stopped groups aren’t counted in the forecast until you say they’re still going.</p></section>` : ''}
 
     <section class="card summary">
       <div class="summary-top">
