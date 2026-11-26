@@ -164,3 +164,35 @@ test('logged payments: a typed minus makes a credit; income rows say received / 
   await expect(row.locator('.pay-kind')).toHaveText('Paid back');
   await expect(page.locator('#sheet .tab-panel.on')).toContainText('money you paid back');
 });
+
+test('a group’s Summary has its own chart: one line, range buttons, tap for a month', async ({ page }) => {
+  await openWithSample(page);
+  await editEntry(page, 'Netflix');
+  const card = page.locator('#sheet .group-chart');
+  await expect(card.locator('h3')).toHaveText('Over time');
+  await expect(card.locator('.c-line.c-expense').first()).toBeVisible();
+  await expect(card.locator('.c-line.c-income')).toHaveCount(0);      // an expense: no income line
+  await expect(card.locator('.readout')).toContainText(/\d\.\d\d/);
+  await expect(card.locator('.g-insight')).toContainText('averaged');
+
+  const before = await card.locator('.ro-month').innerText();
+  const svg = card.locator('.chart-svg');
+  await svg.scrollIntoViewIfNeeded();
+  const b = await svg.boundingBox();
+  await page.mouse.click(b.x + b.width * 0.2, b.y + b.height / 2);
+  await expect(card.locator('.ro-month')).not.toHaveText(before);
+
+  // 6M draws fewer months than 2Y
+  const dots = () => card.locator('.c-dot').count();
+  await card.locator('[data-grange="24"]').click();
+  await expect(card.locator('[data-grange="24"]')).toHaveClass(/on/);
+  const many = await dots();
+  await card.locator('[data-grange="6"]').click();
+  expect(await dots()).toBeLessThan(many || Infinity);
+  await expect(page.locator('#sheet [data-panel=summary]')).toBeVisible();  // still on Summary
+
+  // Income groups draw the income line
+  await page.locator('#sheet [data-close]').click();
+  await editEntry(page, 'Salary');
+  await expect(page.locator('#sheet .group-chart .c-line.c-income').first()).toBeVisible();
+});

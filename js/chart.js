@@ -1,4 +1,4 @@
-// Dependency-free SVG line chart: income vs expenses per month, with a dashed forecast.
+// Dependency-free SVG line chart: income and/or expenses per month, with a dashed forecast.
 
 function niceStep(raw) {
   const pow = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -6,19 +6,19 @@ function niceStep(raw) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * pow;
 }
 
-export function buildChart(data, { currentIdx, axisFmt, monthFmt, wide = false }) {
+export function buildChart(data, { currentIdx, axisFmt, monthFmt, wide = false, keys = ['income', 'expense'], label = 'Income and expenses by month' }) {
   // A wider drawing on computers, so the labels stay small instead of the chart scaling up
   const W = wide ? 640 : 340, H = wide ? 230 : 190, L = 44, R = 12, T = 12, B = 24;
   const n = data.length;
   const iw = W - L - R, ih = H - T - B;
-  const max = Math.max(1, ...data.flatMap(d => [d.income, d.expense]));
+  const max = Math.max(1, ...data.flatMap(d => keys.map(k => d[k])));
   const step = niceStep(max / 4);
   const top = Math.ceil(max / step) * step;
 
   const x = i => L + (n === 1 ? iw / 2 : (i * iw) / (n - 1));
-  const y = v => T + ih - (v / top) * ih;
+  const y = v => T + ih - (Math.max(0, v) / top) * ih; // a month of refunds sits on the axis
 
-  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="img" aria-label="Income and expenses by month">`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="img" aria-label="${label}">`;
 
   // Forecast shading
   if (currentIdx < n - 1) {
@@ -40,7 +40,7 @@ export function buildChart(data, { currentIdx, axisFmt, monthFmt, wide = false }
   });
 
   const pts = (key, a, b) => data.slice(a, b + 1).map((d, j) => `${x(a + j).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ');
-  for (const key of ['income', 'expense']) {
+  for (const key of keys) {
     s += `<polyline points="${pts(key, 0, currentIdx)}" class="c-line c-${key}"/>`;
     if (currentIdx < n - 1) s += `<polyline points="${pts(key, currentIdx, n - 1)}" class="c-line c-${key} c-dash"/>`;
     if (n <= 15) data.forEach((d, i) => { s += `<circle cx="${x(i)}" cy="${y(d[key])}" r="2.2" class="c-dot c-${key}"/>`; });
@@ -48,7 +48,7 @@ export function buildChart(data, { currentIdx, axisFmt, monthFmt, wide = false }
 
   // Highlight (moved by the app on tap / drag)
   s += `<g class="c-hl"><line class="c-hl-line" y1="${T}" y2="${T + ih}"/>` +
-       `<circle class="c-hl-dot c-income" r="4.5"/><circle class="c-hl-dot c-expense" r="4.5"/></g>`;
+       keys.map(k => `<circle class="c-hl-dot c-${k}" r="4.5"/>`).join('') + `</g>`;
   s += `<rect class="c-hit" x="0" y="0" width="${W}" height="${H}"/>`;
   s += `</svg>`;
 
@@ -65,9 +65,14 @@ export function buildChart(data, { currentIdx, axisFmt, monthFmt, wide = false }
       const d = data[i];
       const line = svgEl.querySelector('.c-hl-line');
       line.setAttribute('x1', x(i)); line.setAttribute('x2', x(i));
-      const [inc, exp] = svgEl.querySelectorAll('.c-hl-dot');
-      inc.setAttribute('cx', x(i)); inc.setAttribute('cy', y(d.income));
-      exp.setAttribute('cx', x(i)); exp.setAttribute('cy', y(d.expense));
+      svgEl.querySelectorAll('.c-hl-dot').forEach((dot, j) => { dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(d[keys[j]])); });
     },
   };
+}
+
+/** Tap or drag on a drawn chart to pick a month: calls onSelect(index). */
+export function attachChart(svgEl, ctl, onSelect) {
+  const pick = ev => onSelect(ctl.indexAt(svgEl, ev.clientX));
+  svgEl.addEventListener('pointerdown', pick);
+  svgEl.addEventListener('pointermove', ev => { if (ev.buttons || ev.pointerType === 'touch') pick(ev); });
 }
