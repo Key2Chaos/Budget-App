@@ -348,6 +348,7 @@ test('payees can be moved out of a catch-all later', async ({ page }) => {
   const payees = page.locator('#sheet .payee-row');
   await expect(page.locator('#sheet')).toContainText('Payees (');
   const before = await payees.count();
+  await expect(payees.filter({ hasText: /^Kmart/ }).locator('.payee-bank')).toContainText('KMART');  // the bank's full wording
   await page.locator('#sheet .payee-row').first().locator('xpath=ancestor::section').screenshot({ path: test.info().outputPath('payees.png') });
   // Move Kmart into a group of its own: the picker offers to create one with the payee's name
   const moveBtn = name => page.locator('#sheet').getByRole('button', { name: new RegExp(`^Move ${name}`) });

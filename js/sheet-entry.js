@@ -44,8 +44,13 @@ export function payeesSection(entry) {
   for (const p of entry.payments || []) {
     const k = payeeOfPayment(p);
     if (!k) continue;
-    const g = by.get(k) || { key: k, n: 0, total: 0, last: '' };
+    const g = by.get(k) || { key: k, n: 0, total: 0, last: '', texts: new Map() };
     g.n++; g.total += p.amount; g.last = p.date > g.last ? p.date : g.last;
+    const text = (p.note || '').split(' · ').at(-1).trim(); // the bank's full wording, e.g. "PENRITH CITY COUNCIL PENRITH"
+    if (text) {
+      const t = g.texts.get(text.toUpperCase()) || { text, n: 0 };
+      t.n++; g.texts.set(text.toUpperCase(), t);
+    }
     by.set(k, g);
   }
   if (!by.size) return ''; // even a group's only payee can be moved on
@@ -53,11 +58,19 @@ export function payeesSection(entry) {
   return `<div class="group-title">Payees (${groups.length})</div>
     <section class="card form">${groups.map(g => `
       <div class="field payee-row"><span>${esc(payeeLabel(g.key))}<br>
-        <span class="muted small-text">${g.n} payment${g.n === 1 ? "" : "s"} · ${money(g.total)} · last ${esc(fmtDate(g.last))}</span></span>
+        ${bankTexts(g)}<span class="muted small-text">${g.n} payment${g.n === 1 ? "" : "s"} · ${money(g.total)} · last ${esc(fmtDate(g.last))}</span></span>
         <button type="button" class="btn small" data-move-payee="${esc(g.key)}" aria-label="Move ${esc(payeeLabel(g.key))} to another group">Move to…</button></div>`).join('')}
     </section>
     <p class="fine pad-x">Move a payee's payments to another group, or type a name for a new one. Future imports send that
       payee there too.</p>`;
+}
+
+/** The bank's own wording of a payee's payments (most used first), so similar payees can be told apart. */
+function bankTexts(g) {
+  const texts = [...g.texts.values()].sort((a, b) => b.n - a.n).map(t => t.text);
+  if (!texts.length) return '';
+  const shown = texts.slice(0, 3).map(esc).join('<br>');
+  return `<span class="payee-bank small-text">${shown}${texts.length > 3 ? `<br>+${texts.length - 3} more` : ''}</span><br>`;
 }
 
 /** Choose where one payee's payments in an entry go, with the picker. */
