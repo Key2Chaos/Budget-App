@@ -241,7 +241,7 @@ test('merging two payees puts all their payments in one group; the emptied group
   await expect(page.locator('#payments')).toContainText('KMART');
 });
 
-test('start-up tidies empty groups earlier moves left behind, once; groups you made stay', async ({ page }) => {
+test('start-up tidies empty groups earlier moves left behind, once; groups and schedules you made stay', async ({ page }) => {
   await openEmpty(page);
   const group = (id, name, extra) => ({ id, type: 'expense', name, category: '', method: '', frequency: 'irregular',
     startDate: '2026-10-01', contractEnd: null, endsAtExpiry: false, endDate: null, notes: '', tags: [],
@@ -256,10 +256,18 @@ test('start-up tidies empty groups earlier moves left behind, once; groups you m
       tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
     };
     req.onerror = () => reject(req.error);
-  }), [group('a', 'Left behind', { fromImport: true }), group('b', 'Fuel (mine)', {})]);
+  }), [group('a', 'Left behind', { fromImport: true }), group('b', 'Fuel (mine)', {}),
+    // An import guessed a monthly bill; its payee was later moved elsewhere
+    group('c', 'Bupa Hi', { fromImport: true, frequency: 'monthly', variable: false,
+      prices: [{ from: '2026-10-01', amount: 223.25, frequency: 'monthly' }] }),
+    // The same, but you changed the amount yourself
+    group('d', 'Gym (set by me)', { fromImport: true, scheduleSetByYou: true, frequency: 'monthly', variable: false,
+      prices: [{ from: '2026-10-01', amount: 30, frequency: 'monthly' }] })]);
   await page.reload();
-  await expect(page.locator('#toast')).toContainText('Tidied up · “Left behind” removed (empty)');
+  await expect(page.locator('#toast')).toContainText('Tidied up · 2 groups removed (empty)');
   await tab(page, 'entries');
   await expect(row(page, 'Left behind')).toHaveCount(0);
+  await expect(row(page, 'Bupa Hi')).toHaveCount(0);
   await expect(row(page, 'Fuel (mine)')).toBeVisible();
+  await expect(row(page, 'Gym (set by me)')).toBeVisible();
 });

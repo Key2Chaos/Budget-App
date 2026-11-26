@@ -269,6 +269,16 @@ test('with no entries yet, any transaction can start a new entry', async ({ page
   await expect(row(page, 'Grocer')).toContainText('Last $82.10');
   await expect(row(page, 'Streamco')).toContainText('Monthly');
   await expect(row(page, 'Cafe Example')).toContainText('$4.50');
+
+  // Moving Streamco's payee into another group: its monthly group (guessed by the import) goes too
+  await editEntry(page, 'Streamco');
+  await sheetPage(page, 'accounts');
+  await page.locator('#sheet').getByRole('button', { name: /^Move Streamco/ }).click();
+  await page.locator('#picker .pick-search').fill('Netloop');
+  await page.locator('#picker [data-pick]', { hasText: 'Netloop' }).click();
+  await expect(page.locator('#toast')).toContainText('“Streamco” removed (empty)');
+  await expect(page.locator('#sheet[open]')).toHaveCount(0);                // its sheet closes with it
+  await expect(row(page, 'Streamco')).toHaveCount(0);
 });
 
 test('unmatched: one row per payee; giving two payees the same name puts them together', async ({ page }) => {

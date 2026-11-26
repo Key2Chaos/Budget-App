@@ -620,9 +620,15 @@ export async function saveForm(form, existing) {
   }
   payments.sort((a, b) => a.date.localeCompare(b.date));
 
+  // Changing a group's amounts or how often makes the schedule yours: it then stays even when empty
+  const schedule = e => JSON.stringify([!!e.variable, e.prices.map(p => [p.amount ?? null, p.frequency])]);
+  const scheduleSetByYou = !!existing?.scheduleSetByYou
+    || (!!existing && schedule(existing) !== schedule({ variable, prices }));
+
   const now = new Date().toISOString();
   const entry = {
     ...existing, // keep any fields this version of the form doesn't know about
+    ...(scheduleSetByYou ? { scheduleSetByYou } : {}),
     id: existing?.id || uid(),
     type: f.type === 'income' ? 'income' : 'expense',
     name,

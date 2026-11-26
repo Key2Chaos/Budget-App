@@ -32,9 +32,12 @@ export async function movePayments(list, dest, now = new Date().toISOString()) {
   return out;
 }
 
-/** A group the app made (by an import, or a name typed in the picker) with no schedule you set up. */
-export const isAutoGroup = e => !!(e.fromImport || e.catchAll) && C.isIrregular(e)
-  && !e.prices.some(p => p.amount != null && p.amount > 0);
+/**
+ * A group the app made (by an import, or a name typed in the picker) with no schedule you set up:
+ * none at all, or only the one an import guessed (e.g. "Monthly $223.25") and you haven't changed.
+ */
+export const isAutoGroup = e => !!(e.fromImport || e.catchAll)
+  && (!e.scheduleSetByYou || (C.isIrregular(e) && !e.prices.some(p => p.amount != null && p.amount > 0)));
 
 /** Nothing refers to the group: no payments, no payee goes there, no budget for it. */
 const isUnused = e => !(e.payments || []).length
@@ -71,11 +74,15 @@ export function homeGroup(payee, pays) {
   return best ? state.entries.find(e => e.id === best[0]) || null : null;
 }
 
-/** Once, for data from before this tidy-up: remove empty groups that earlier moves left behind. */
+/** Bump to sweep again when isAutoGroup covers more (2: imported groups with a guessed schedule). */
+const SWEEP = 2;
+
+/** Once per SWEEP, for data from before this tidy-up: remove empty groups that earlier moves left behind. */
 export async function sweepEmptyGroups() {
-  if (state.settings.emptyGroupsSwept) return [];
+  if ((state.settings.emptyGroupsSweep || 0) >= SWEEP) return [];
   const names = await removeEmptyGroups(state.entries.map(e => e.id));
-  state.settings.emptyGroupsSwept = true;
+  state.settings.emptyGroupsSweep = SWEEP;
+  delete state.settings.emptyGroupsSwept;
   await saveSettings();
   return names;
 }
