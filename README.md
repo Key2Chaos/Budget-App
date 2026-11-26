@@ -42,7 +42,19 @@ No backend, no account. All data lives on the device in IndexedDB.
   - There are no due dates, so these never show as upcoming or overdue.
   - Each month counts what you actually logged: imported or typed payments land on the day they
     were paid, rather than being spread over a period.
-  - The estimate is the average of your last three complete months.
+  - The estimate is the monthly average of the last 12 complete months, once there have been at
+    least 3 payments in them (one or two big purchases aren't a habit, so they aren't forecast).
+  - *Don't forecast*: for a project or one-off spend (a renovation, a holiday). Only what's been paid
+    counts.
+  - If one is paid on a regular schedule after all (e.g. monthly health insurance), the Overview
+    offers to set it ("Looks monthly · Set monthly").
+- **Check these groups** (Overview): a bill whose bank payments stopped coming (none for over two
+  periods, while later statements have been imported) is left out of the forecast and pointed out:
+  *End it* sets its cancelled date to the last payment; *Still going* keeps it.
+- **Tidy up groups** (Settings → Bank statements): groups that look like the same thing twice
+  ("Sushi" and "Sushi Ryu", or two groups with a payee in common), merged in one tap; and
+  categories for groups with none, from well-known names (Woolworths → Groceries, McDonald's →
+  Eating out, 7-Eleven → Transport).
   - Bank import matches them by the full name only, since there's no amount or date to compare.
 - **Contract end date** (optional), with a reminder on the Overview 60 days before it ends. You can
   choose whether payments stop at the end date or roll over. Entries that have rolled over show as
@@ -130,7 +142,8 @@ No backend, no account. All data lives on the device in IndexedDB.
   - **No duplicates:** importing an overlapping statement never logs the same transaction twice.
     Ignored transactions and transfers are remembered (up to 20,000 each, dropping the oldest
     transactions first, so a recent statement never brings back something you ignored).
-    Choose the same account each time; the app suggests the one a file was imported into before.
+    The first time, you name the account a statement is from. After that, choose it (or a new one)
+    each time; a file whose transactions were imported before is recognised and its account chosen.
   - **Payments you logged yourself** (typed in, or *Mark paid*) aren't doubled up. A bank transaction
     within 4 days and 1% of one updates it to the bank's actual date and amount, shown as
     "already logged" on the review screen.
@@ -179,7 +192,9 @@ No backend, no account. All data lives on the device in IndexedDB.
   - **Refunds** follow the payee's purchases: money back from a shop goes to the same entry as a credit, not to *Other income*. Purchases and refunds from one payee
     share a row.
   - **Recurring payments you haven't added**, e.g. "Disney Plus, 3 × $13.99 monthly", can be added as
-    entries with one tap, past payments included.
+    entries with one tap, past payments included. It takes at least 3 payments (4 for weekly and
+    quarterly), most of them on schedule, and the last one recent: a refund, one late payment or
+    a subscription that's since stopped doesn't count.
 - **Spreadsheet export** (Settings → Export spreadsheet): three CSV files (entries, payments and
   monthly totals) for Excel or Numbers.
 - **Backup**: export to the iOS share sheet, then "Save to Files" → iCloud Drive. Import merges a

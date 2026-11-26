@@ -139,6 +139,7 @@ export function normalizeEntry(raw) {
     prev = p.frequency;
   }
   const now = new Date().toISOString();
+  const payments = normalizePayments(raw.payments);
   return {
     ...raw,
     id: String(raw.id),
@@ -151,7 +152,6 @@ export function normalizeEntry(raw) {
     contractEnd: !once && isDate(raw.contractEnd) ? raw.contractEnd : null,
     endsAtExpiry: !once && !!raw.endsAtExpiry,
     endDate: !once && isDate(raw.endDate) ? raw.endDate : null,
-    notes: str(raw.notes),
     tags: normalizeTags(raw.tags),
     prices,
     // Optional fields added Nov 2026 (no format bump needed — older data just gets the defaults):
@@ -160,10 +160,30 @@ export function normalizeEntry(raw) {
     share: normalizeShare(raw.share),              // your % of the bill (100 = all of it)
     noticeDays: !once && Number.isInteger(raw.noticeDays) && raw.noticeDays > 0 && raw.noticeDays <= 3650
       ? raw.noticeDays : null,
-    payments: normalizePayments(raw.payments),
+    payments,
+    notes: importNote(str(raw.notes), payments),
+    // Added Nov 2026, also without a format bump:
+    noForecast: !!raw.noForecast,                  // no set schedule, and not expected again (a project, a trip)
+    keepGoingFrom: isDate(raw.keepGoingFrom) ? raw.keepGoingFrom : null, // "still going" after it looked stopped
+    scheduleDismissed: FREQ[raw.scheduleDismissed] ? raw.scheduleDismissed : null, // a suggested schedule you said no to
     createdAt: str(raw.createdAt) || now,
     updatedAt: str(raw.updatedAt) || str(raw.createdAt) || now,
   };
+}
+
+/**
+ * The note an import writes on a group it adds names the payee it was made for: "Added from a bank
+ * import (SUSHI RYU)". Once that payee's payments have all moved out, the note names the payee most
+ * of its payments now come from instead. Notes you wrote are never touched.
+ */
+function importNote(notes, payments) {
+  const m = /^Added from a bank import \((.+)\)$/.exec(notes);
+  const keys = payments.map(p => p.payee).filter(Boolean);
+  if (!m || !keys.length || keys.includes(m[1])) return notes;
+  const count = new Map();
+  for (const k of keys) count.set(k, (count.get(k) || 0) + 1);
+  const top = [...count].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+  return `Added from a bank import (${top})`;
 }
 
 function normalizeShare(v) {
@@ -237,6 +257,11 @@ function normalizeSettings(raw) {
   if (accounts.length) out.accounts = accounts;
   const payees = normalizePayees(raw?.payees);
   if (payees.length) out.payees = payees;
+  // Groups you said aren't the same, so they aren't offered for merging again (Nov 2026, optional)
+  if (Array.isArray(raw?.notSameGroups)) {
+    const list = raw.notSameGroups.filter(x => Array.isArray(x) && x.length === 2 && x.every(id => typeof id === 'string' && id));
+    if (list.length) out.notSameGroups = list.slice(-2000).map(([a, b]) => [a, b]);
+  }
   return out;
 }
 

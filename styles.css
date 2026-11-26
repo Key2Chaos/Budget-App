@@ -303,6 +303,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .form-error:not(:empty) { margin-bottom: 16px; }
 
 form.is-once .recurring-only { display: none; }
+form:not(.is-irregular) .irregular-only { display: none; }
 
 /* ---------- Tags ---------- */
 .chip {
@@ -361,6 +362,12 @@ form.is-income .expense-only { display: none; }
 .pay-item { gap: 10px; }
 .row-main.plain { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .pay-item .btn.small { flex: none; }
+.check-item { gap: 10px; flex-wrap: wrap; }
+.check-item .row-main { flex: 1 1 12em; }
+.check-btns { display: flex; gap: 6px; flex: none; margin-left: auto; }
+.tidy-names { padding: 10px 16px; display: grid; gap: 4px; }
+.tidy-btns { justify-content: flex-end; gap: 8px; }
+.tidy-cat input[type=checkbox] { flex: none; }
 
 /* ---------- Summary toggle, budgets, payday ---------- */
 .summary-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px; }

@@ -74,6 +74,23 @@ export function homeGroup(payee, pays) {
   return best ? state.entries.find(e => e.id === best[0]) || null : null;
 }
 
+/**
+ * Merge `entry` into `dest`: its payments and payees move there, a budget for it becomes one for
+ * `dest` (unless that has its own), and `entry` is deleted. Saves; call reload() after.
+ * Returns `dest` as saved.
+ */
+export async function mergeGroups(entry, dest) {
+  const saved = await movePayments((entry.payments || []).map(p => ({ p, e: entry })), dest);
+  await db.deleteEntry(entry.id);
+  state.settings.payees = M.payeesOf(state.settings).map(p => (p.groupId === entry.id ? { ...p, groupId: dest.id } : p));
+  const budgets = state.settings.budgets || [];
+  const hasOwn = budgets.some(b => b.kind === 'group' && b.groupId === dest.id);
+  state.settings.budgets = budgets.flatMap(b => (b.kind === 'group' && b.groupId === entry.id
+    ? (hasOwn ? [] : [{ ...b, groupId: dest.id, label: dest.name }]) : [b]));
+  await saveSettings();
+  return saved.find(e => e.id === dest.id) || dest;
+}
+
 /** Bump to sweep again when isAutoGroup covers more (2: imported groups with a guessed schedule). */
 const SWEEP = 2;
 

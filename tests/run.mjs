@@ -666,6 +666,7 @@ test('your own payee names: shown, used for matching and for new entries, kept i
   const internet = normalizeEntry({ id: 'i', type: 'expense', name: 'Home internet', frequency: 'monthly',
     startDate: '2026-01-09', prices: [{ from: '2026-01-09', amount: 104 }] });
   const raw = [
+    { date: '2026-09-09', amount: -105.04, description: '123456 Aus' },
     { date: '2026-10-09', amount: -105.04, description: '123456 Aus' },
     { date: '2026-11-09', amount: -105.04, description: '123456 Aus' },
   ];
@@ -921,4 +922,116 @@ test('budgets by group follow the group, not its name; exports show payee, accou
   const payees = R.payeesRows(entries, settings);
   assert.deepEqual(payees.find(r => r[0] === 'Home internet'), ['Home internet', 'Home internet', 'SUPERLOOP | SUPERLOOP LIMITED', 2, 178]);
   assert.equal(payees.find(r => r[0] === 'Cafe Example')[1], 'Always ignored');
+});
+
+// ---------- Smarter schedules (Nov 2026) ----------
+
+const tx = (date, amount, payee = 'SHOP') => ({ date, amount, payee, description: payee });
+
+test('recurring needs three payments, ignores refunds, a few odd gaps, and payments that stopped', () => {
+  assert.equal(B.findRecurring([tx('2026-09-01', -20), tx('2026-10-01', -20)]).length, 0, 'two payments are not a habit');
+  const monthly = [tx('2026-08-01', -20), tx('2026-09-01', -20), tx('2026-10-01', -20), tx('2026-11-01', -20)];
+  assert.equal(B.findRecurring(monthly)[0].frequency, 'monthly');
+  // a refund doesn't count as a payment, nor break the run
+  const r = B.findRecurring([...monthly, tx('2026-09-15', 20)]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].type, 'expense');
+  // one late payment in six still reads as monthly (80% of gaps fit)
+  const late = ['2026-05-01', '2026-06-01', '2026-07-01', '2026-08-12', '2026-09-01', '2026-10-01', '2026-11-01'].map(d => tx(d, -20));
+  assert.equal(B.findRecurring(late)[0]?.frequency, 'monthly');
+  // monthly until July, nothing since, while the statement goes to November: stopped
+  const stale = [tx('2026-05-01', -20), tx('2026-06-01', -20), tx('2026-07-01', -20), tx('2026-11-20', -5, 'OTHER')];
+  assert.ok(!B.findRecurring(stale).some(g => g.payee === 'SHOP'));
+  // quarterly needs four payments
+  assert.equal(B.scheduleOf([tx('2026-02-01', -90), tx('2026-05-01', -90), tx('2026-08-01', -90)]), null);
+  assert.equal(B.scheduleOf([tx('2025-11-01', -90), tx('2026-02-01', -90), tx('2026-05-01', -90), tx('2026-08-01', -90)]).frequency, 'quarterly');
+  // varying amounts: the latest three, averaged
+  const s = B.scheduleOf([tx('2026-07-01', -49), tx('2026-08-01', -20), tx('2026-09-01', -19), tx('2026-10-01', -19.5)]);
+  assert.equal(s.variable, true);
+  assert.equal(s.amount, 19.5);
+});
+
+const imported = (name, frequency, dates, extra = {}) => normalizeEntry({
+  id: name, type: 'expense', name, frequency, startDate: dates[0],
+  prices: [{ from: dates[0], amount: frequency === 'irregular' ? null : 30, frequency }],
+  variable: frequency === 'irregular', fromImport: true, ...extra,
+  payments: dates.map((d, i) => ({ id: `${name}${i}`, date: d, amount: 30, source: `${name}-t${i}`, account: 'Card', payee: name.toUpperCase() })),
+});
+
+test('a bill whose payments stopped coming is flagged, left out of the forecast, and can be kept going', () => {
+  const gym = imported('Gym', 'monthly', ['2026-03-05', '2026-04-05', '2026-05-05', '2026-06-05']);
+  const other = imported('Shop', 'irregular', ['2026-11-15']); // the card's imports go up to 15 Nov
+  C.setImportedUntil([gym, other]);
+  try {
+    assert.equal(C.looksStopped(gym, '2026-11-20'), true);
+    assert.equal(C.stoppedAfter(gym, '2026-11-20'), '2026-06-05');
+    assert.equal(C.monthlyEquivalent(gym, '2026-11-20'), 0);
+    assert.equal(C.nextDue(gym, '2026-11-20'), null);
+    assert.ok(C.monthAmount(gym, 2026, 4) > 25, 'past months keep what was paid');
+    // "Still going": not flagged again until it's been quiet as long again
+    const kept = { ...gym, keepGoingFrom: '2026-11-20' };
+    assert.equal(C.looksStopped(kept, '2026-11-20'), false);
+    assert.ok(C.monthlyEquivalent(kept, '2026-11-20') > 0);
+    // without imports reaching past it, nothing looks stopped
+    C.setImportedUntil([gym]);
+    assert.equal(C.looksStopped(gym, '2026-11-20'), false);
+  } finally { C.setImportedUntil([]); }
+});
+
+test('variable groups: a year of payments, at least three of them; one-off projects can be left out', () => {
+  const g = imported('Fuel', 'irregular', ['2026-01-10', '2026-04-10', '2026-07-10', '2026-10-10']);
+  assert.equal(Math.round(C.monthlyEquivalent(g, '2026-11-20')), 12, '4 × $30 over the 10 months Jan–Oct');
+  const pc = imported('PC shop', 'irregular', ['2026-03-01', '2026-03-02']);
+  assert.equal(C.monthlyEquivalent(pc, '2026-11-20'), 0, 'two purchases are not forecast');
+  assert.equal(C.monthAmount(pc, 2026, 2), 60, 'but still count when they happened');
+  assert.equal(C.monthlyEquivalent({ ...g, noForecast: true }, '2026-11-20'), 0);
+  assert.equal(normalizeEntry({ ...g, noForecast: true }).noForecast, true);
+});
+
+test('a Variable group paid on a regular schedule is offered that schedule', () => {
+  const bupa = imported('Bupa', 'irregular', ['2026-07-03', '2026-08-03', '2026-09-03', '2026-10-03', '2026-11-03']);
+  const s = B.suggestSchedule(bupa, '2026-11-20');
+  assert.equal(s.frequency, 'monthly');
+  const set = B.withSchedule(bupa, s);
+  assert.equal(set.frequency, 'monthly');
+  assert.equal(set.startDate, '2026-07-03');
+  assert.equal(set.prices[0].amount, 30);
+  assert.ok(set.payments.every(p => p.due));
+  assert.equal(B.suggestSchedule({ ...bupa, scheduleDismissed: 'monthly' }, '2026-11-20'), null, '"Not regular" sticks');
+  assert.equal(B.suggestSchedule({ ...bupa, noForecast: true }, '2026-11-20'), null);
+});
+
+test('bank text: DD and BPAY prefixes, and shop names with "and", "the" or a title', () => {
+  assert.equal(B.guessMethod('DD *DOORDASH CRYSTALJA MELBOURNE VIC', 'credit'), 'Credit card', 'DD * is a DoorDash card purchase');
+  assert.equal(B.guessMethod('DD 123456 SUPERLOOP'), 'Direct debit');
+  assert.equal(B.guessMethod('BPAYN PENRITH CITY COUNCIBPAY Rates'), 'BPAY');
+  assert.equal(B.payeeName('THE LOCKER ROOM'), 'The Locker Room');
+  assert.equal(B.payeeName('BEST AND LESS'), 'Best And Less');
+  assert.equal(B.payeeName('SP BOODY'), 'Boody');
+  assert.equal(B.payeeName('DISNEY PLUS SYDNEY'), 'Disney Plus');
+});
+
+test('an import note follows the payee a group ends up with', () => {
+  const e = normalizeEntry({ id: 'x', type: 'expense', name: 'Kmart', frequency: 'irregular', startDate: '2026-11-01',
+    prices: [{ from: '2026-11-01', amount: null, frequency: 'irregular' }], notes: 'Added from a bank import (OLD KEY)',
+    payments: [{ id: 'p', date: '2026-11-01', amount: 5, payee: 'KMART BONDI' }] });
+  assert.equal(e.notes, 'Added from a bank import (KMART BONDI)');
+  assert.equal(normalizeEntry({ ...e, notes: 'My own note' }).notes, 'My own note');
+});
+
+test('categories from well-known names; duplicates are the same name, not just the same town', () => {
+  assert.equal(B.keywordCategory('Woolworths'), 'Groceries');
+  assert.equal(B.keywordCategory('Shop', 'ELEVEN'), 'Transport', '7-Eleven, by its payee key');
+  assert.equal(B.keywordCategory('Mcdonalds St Clair'), 'Eating out');
+  assert.equal(B.keywordCategory('Penrith City Council'), 'Housing');
+  assert.equal(B.keywordCategory('Kmart'), '');
+  const g = (id, name, extra = {}) => ({ id, type: 'expense', name, frequency: 'irregular', payments: [], ...extra });
+  const groups = [g('a', 'Sushi'), g('b', 'Sushi Ryu'), g('c', 'Penrith Council'), g('d', 'Penrith RSL'),
+    g('e', 'Netflix', { payments: [{ payee: 'NETFLIX COM' }, { payee: 'NETFLIX COM' }] }), g('f', 'Movies', { payments: [{ payee: 'NETFLIX COM' }] }),
+    g('h', 'Sushi Train', { frequency: 'once' })];
+  const d = B.findDuplicateGroups(groups);
+  assert.deepEqual(d.map(x => [x.keep.id, x.merge.map(m => m.id)]).sort(), [['a', ['b']], ['e', ['f']]]);
+  assert.deepEqual(B.findDuplicateGroups(groups, [['b', 'a']]).map(x => x.keep.id), ['e'], '"Not the same" sticks');
+  const { settings } = migrateBackup({ app: 'budget-pwa', version: SCHEMA_VERSION, entries: [], settings: { notSameGroups: [['a', 'b'], ['x'], 5] } });
+  assert.deepEqual(settings.notSameGroups, [['a', 'b']]);
 });
