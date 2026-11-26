@@ -472,6 +472,10 @@ form.tabbed .tab-panel:not(.on) { display: none; }
 .payee-kind { margin-bottom: 10px; }
 .payee-kind button { flex: 1; }
 #payees .row-amt small { white-space: nowrap; }
+/* Long payee names and bank spellings wrap instead of being cut off */
+#payees .row-title, #payee .row-title { white-space: normal; overflow-wrap: anywhere; }
+.payee-row > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.payee-row > .btn { flex: none; }
 .sum-break { font-size: 14px; margin-top: 10px; line-height: 1.5; }
 .sum-part { white-space: nowrap; }
 .sum-part strong { font-weight: 600; font-variant-numeric: tabular-nums; }
