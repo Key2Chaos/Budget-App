@@ -697,13 +697,17 @@ export async function deleteEntry(entry) {
   const isUngrouped = entry.catchAll?.startsWith('ungrouped|');
   const note = imported.length && !isUngrouped
     ? ` Its ${imported.length} imported payment${imported.length === 1 ? '' : 's'} will move to ${ungroupedName(entry.type)}.` : '';
-  if (!confirm(`Delete “${entry.name}”?${note} This can’t be undone.`)) return;
+  if (!confirm(`Delete “${entry.name}”?${note}`)) return;
   const now = new Date().toISOString();
+  // What Undo puts back
+  const before = { entry, dest: null, made: null, payees: state.settings.payees, budgets: state.settings.budgets };
   if (imported.length && !isUngrouped) {
     const key = `ungrouped|${entry.type}`;
-    const dest = state.entries.find(e => e.catchAll === key) || newGroup({ name: ungroupedName(entry.type), type: entry.type,
+    before.dest = state.entries.find(e => e.catchAll === key) || null;
+    const dest = before.dest || newGroup({ name: ungroupedName(entry.type), type: entry.type,
       start: imported.reduce((d, p) => (p.date < d ? p.date : d), imported[0].date), catchAll: key, fromImport: true,
       notes: 'Imported payments from groups you deleted. Open its Accounts page to move a payee into a group.' });
+    if (!before.dest) before.made = dest.id;
     const start = imported.reduce((d, p) => (p.date < d ? p.date : d), dest.startDate);
     await db.putEntry(normalizeEntry({ ...dest, startDate: start, prices: [{ ...dest.prices[0], from: start }],
       payments: [...(dest.payments || []), ...imported.map(p => ({ ...p, due: null }))], updatedAt: now }));
@@ -714,6 +718,19 @@ export async function deleteEntry(entry) {
   await saveSettings();
   closeSheet();
   await reload();
-  toast(note ? `Deleted · ${imported.length} payment${imported.length === 1 ? '' : 's'} moved to ${ungroupedName(entry.type)}` : 'Deleted');
+  toast(note ? `Deleted · ${imported.length} payment${imported.length === 1 ? '' : 's'} moved to ${ungroupedName(entry.type)}` : `Deleted “${entry.name}”`,
+    { undo: () => undoDelete(before) });
+}
+
+/** Put a deleted group back as it was, with its payees and budget, and the Ungrouped group it fed. */
+async function undoDelete({ entry, dest, made, payees, budgets }) {
+  await db.putEntry(entry);
+  if (dest) await db.putEntry(dest);
+  else if (made) await db.deleteEntry(made);
+  state.settings.payees = payees;
+  state.settings.budgets = budgets;
+  await saveSettings();
+  await reload();
+  toast(`“${entry.name}” is back`);
 }
 const ungroupedName = type => (type === 'income' ? 'Ungrouped income' : 'Ungrouped spending');

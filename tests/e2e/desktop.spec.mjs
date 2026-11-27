@@ -273,3 +273,98 @@ test('Accounts page: figures per account, its type, and its payments on the Tran
   await expect(page.locator('#title')).toHaveText('Settings');
   await expect(page.locator('#sheet[open] h2')).toHaveText('Accounts');
 });
+
+test('keyboard shortcuts: tabs, search, a new payee group, the list, and Ctrl Z to undo a delete', async ({ page }) => {
+  await openWithSample(page);
+  await page.keyboard.press('2');
+  await expect(page.locator('#title')).toHaveText('Payee groups');
+  await page.keyboard.press('/');
+  await expect(page.locator('#search')).toBeFocused();
+  await page.keyboard.type('3n'); // typing in a box isn't a shortcut
+  await expect(page.locator('#search')).toHaveValue('3n');
+  await expect(page.locator('#title')).toHaveText('Payee groups');
+  await page.locator('#search').fill('');
+  await page.locator('#title').click(); // out of the box
+
+  // "/" from the Overview searches Transactions
+  await page.keyboard.press('1');
+  await expect(page.locator('#title')).toHaveText('Overview');
+  await page.keyboard.press('/');
+  await expect(page.locator('#title')).toHaveText('Transactions');
+  await expect(page.locator('#txSearch')).toBeFocused();
+  await page.locator('#title').click();
+  await page.keyboard.press('5');
+  await expect(page.locator('#title')).toHaveText('Payees');
+  await page.keyboard.press('6');
+  await expect(page.locator('#title')).toHaveText('Accounts');
+
+  await page.keyboard.press('n');
+  await expect(page.locator('#sheet[open] h2')).toHaveText('New payee group');
+  await page.keyboard.press('1'); // not while a sheet is open
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#sheet[open]')).toHaveCount(0);
+  await expect(page.locator('#title')).toHaveText('Accounts');
+
+  await page.keyboard.press('?');
+  await expect(page.locator('#sheet[open] h2')).toHaveText('Keyboard shortcuts');
+  await expect(page.locator('#keys')).toContainText('New payee group');
+  await shot(page, 'shortcuts');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#sheet[open]')).toHaveCount(0);
+  await page.locator('#keysBtn').click();
+  await expect(page.locator('#sheet[open] h2')).toHaveText('Keyboard shortcuts');
+  await page.locator('#keys [data-close]').click();
+
+  // delete a payee group, then Ctrl Z
+  await page.keyboard.press('2');
+  await page.locator('.g-table tbody tr', { hasText: 'Spotify' }).click();
+  await page.locator('[data-delete]').click();
+  await expect(page.locator('#toast')).toContainText('Deleted “Spotify”');
+  await expect(page.locator('.g-table tbody tr', { hasText: 'Spotify' })).toHaveCount(0);
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('#toast')).toContainText('“Spotify” is back');
+  await expect(page.locator('.g-table tbody tr', { hasText: 'Spotify' })).toHaveCount(1);
+});
+
+test('Esc clears the ticked rows on Transactions', async ({ page }) => {
+  await openWithSample(page);
+  await page.keyboard.press('3');
+  await page.locator('.tx-table tbody tr').first().locator('input[type=checkbox]').check();
+  await expect(page.locator('.tx-bulk')).toContainText('1 selected');
+  await page.locator('#title').click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.tx-bulk')).toHaveCount(0);
+});
+
+/** Drop files on the page, as if dragged from the desktop. */
+async function dropFiles(page, files) {
+  const dt = await page.evaluateHandle(fs => {
+    const d = new DataTransfer();
+    for (const f of fs) d.items.add(new File([f.text], f.name, { type: f.type }));
+    return d;
+  }, files);
+  await page.dispatchEvent('#view', 'dragenter', { dataTransfer: dt });
+  await expect(page.locator('#dropZone')).toBeVisible();
+  await page.dispatchEvent('#view', 'dragover', { dataTransfer: dt });
+  await page.dispatchEvent('#view', 'drop', { dataTransfer: dt });
+  await expect(page.locator('#dropZone')).toBeHidden();
+}
+
+test('a bank statement dropped anywhere is imported', async ({ page }) => {
+  const { readFile } = await import('node:fs/promises');
+  const csv = await readFile(new URL('../fixtures/bank/commbank-credit-card.csv', import.meta.url), 'utf8');
+  await openWithSample(page);
+  await page.keyboard.press('3');
+  await dropFiles(page, [{ name: 'card.csv', type: 'text/csv', text: csv }]);
+  await expect(page.locator('#import')).toBeVisible();
+  await nameAccounts(page);
+  await page.locator('#import .sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+
+  // not a statement: says so
+  await dropFiles(page, [{ name: 'notes.csv', type: 'text/csv', text: 'hello world' }]);
+  await expect.poll(() => page.dialogs.at(-1)).toContain('wasn’t recognised as a bank statement');
+  // a statement and a backup together: one or the other
+  await dropFiles(page, [{ name: 'card.csv', type: 'text/csv', text: csv }, { name: 'b.json', type: 'application/json', text: '{}' }]);
+  await expect.poll(() => page.dialogs.at(-1)).toContain('not both at once');
+});
