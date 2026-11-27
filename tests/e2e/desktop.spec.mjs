@@ -165,9 +165,9 @@ test('Payees and Accounts are in the sidebar on a computer, and not on a phone',
   await openWithSample(page);
   await page.locator('.tabbar [data-tab=payees]').click();
   await expect(page.locator('#title')).toHaveText('Payees');
-  await page.locator('.tabbar [data-open=accounts]').click();
-  await expect(page.locator('#sheet[open] h2')).toHaveText('Accounts');
-  await page.keyboard.press('Escape');
+  await page.locator('.tabbar [data-tab=accounts]').click();
+  await expect(page.locator('#title')).toHaveText('Accounts');
+  await expect(page.locator('#view')).toContainText('No accounts yet');
   await tab(page, 'overview'); // (narrowing on the Payees page opens the Payees sheet: see below)
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.tabbar [data-tab=payees]')).toBeHidden();
@@ -237,4 +237,39 @@ test('Payees page: a table to sort, and several payees put in a payee group at o
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('#title')).toHaveText('Settings');
   await expect(page.locator('#sheet[open] h2')).toHaveText('Payees');
+});
+
+test('Accounts page: figures per account, its type, and its payments on the Transactions tab', async ({ page }) => {
+  await withCardStatement(page);
+  await page.locator('.tabbar [data-tab=accounts]').click();
+  await expect(page.locator('.tabbar [data-tab=accounts]')).toHaveClass(/active/);
+  const acct = page.locator('.a-table tbody tr').first();
+  const name = (await acct.locator('.a-name .g-open').textContent()).trim();
+  await expect(acct.locator('.a-count')).toHaveText('13');
+  await expect(acct.locator('.a-out')).toHaveText('−£137.32'); // November's card payments: 56 + 23.40 + 18.95 + 11.99 + 12.99 + 13.99
+  await expect(acct.locator('.a-last')).toHaveText('18 Nov');
+  await shot(page, 'accounts');
+
+  // its type changes in place
+  await acct.locator('select').selectOption('credit');
+  await expect(page.locator('#toast')).toContainText(`${name}: Credit card`);
+
+  // rename (the prompt is answered with the new name)
+  page.answers.push('Everyday card');
+  await acct.getByRole('button', { name: /^Rename/ }).click();
+  await expect(acct.locator('.a-name .g-open')).toHaveText('Everyday card');
+  await expect(acct.locator('.a-name .tx-note')).toContainText('imported as');
+
+  // its payments, on the Transactions tab, and back
+  await acct.locator('.a-name .g-open').click();
+  await expect(page.locator('#title')).toHaveText('Transactions');
+  await expect(page.locator('[data-tx=account]')).toHaveValue('Everyday card');
+  await expect(page.locator('.tx-table tbody tr')).toHaveCount(13);
+  await page.getByRole('button', { name: '‹ Accounts' }).click();
+  await expect(page.locator('#title')).toHaveText('Accounts');
+
+  // narrowing to phone size swaps the page for the Accounts sheet in Settings
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#title')).toHaveText('Settings');
+  await expect(page.locator('#sheet[open] h2')).toHaveText('Accounts');
 });

@@ -7,6 +7,7 @@ import { reload, render } from './render.js';
 import { renderEntries } from './view-entries.js';
 import { txActions, txInput, txChange, drillDown } from './view-transactions.js';
 import { payeeActions, payeeInput, payeeChange } from './view-payees.js';
+import { accountActions, accountChange } from './view-accounts.js';
 import { openSheet } from './sheet-entry.js';
 import { manageBudgets } from './sheet-budgets.js';
 import { forgetRules, openUndoImports, undoLastImport, renameAccount, startBankImport } from './importer.js';
@@ -32,6 +33,7 @@ async function updateGroup(id, change, message) {
 const actions = {
   ...txActions,
   ...payeeActions,
+  ...accountActions,
   add: () => openSheet(),
   sample: async () => {
     await db.putEntries(sampleEntries());
@@ -148,7 +150,7 @@ view.addEventListener('input', ev => {
   }
 });
 view.addEventListener('change', async ev => {
-  if (txChange(ev) || payeeChange(ev)) return;
+  if (txChange(ev) || payeeChange(ev) || await accountChange(ev)) return;
   if (ev.target.id === 'currency') {
     state.settings.currency = ev.target.value;
     fmtCache.clear();
@@ -174,8 +176,6 @@ view.addEventListener('change', async ev => {
   }
 });
 document.querySelector('.tabbar').addEventListener('click', ev => {
-  const o = ev.target.closest('button[data-open]'); // Payees / Accounts in the sidebar on a computer
-  if (o) return openAccounts();
   const b = ev.target.closest('button[data-tab]');
   if (!b) return;
   if (state.tab === b.dataset.tab) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
@@ -187,8 +187,13 @@ $('#addBtn').addEventListener('click', () => openSheet());
 // The chart is drawn at a different size on computers, and Payee groups is a table there, so redraw
 // when the window crosses the breakpoint
 wideScreen.addEventListener('change', () => {
-  // The Payees page is for computers; a phone has the Payees sheet in Settings
-  if (state.tab === 'payees' && !wideScreen.matches) { state.tab = 'settings'; render(); openPayees(); return; }
+  // The Payees and Accounts pages are for computers; a phone has their sheets in Settings
+  if ((state.tab === 'payees' || state.tab === 'accounts') && !wideScreen.matches) {
+    const tab = state.tab;
+    state.tab = 'settings'; render();
+    if (tab === 'payees') openPayees(); else openAccounts();
+    return;
+  }
   if (state.tab === 'overview' || state.tab === 'entries') render();
 });
 
