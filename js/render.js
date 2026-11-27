@@ -7,6 +7,7 @@ import { renderEntries } from './view-entries.js';
 import { renderSettings } from './view-settings.js';
 import { renderTransactions } from './view-transactions.js';
 import { renderPayeesPage } from './view-payees.js';
+import { renderAccountsPage } from './view-accounts.js';
 
 export async function reload() { state.entries = await db.allEntries(); render(); }
 
@@ -18,6 +19,7 @@ export function render() {
   else if (state.tab === 'entries') renderEntries();
   else if (state.tab === 'txns') renderTransactions();
   else if (state.tab === 'payees') renderPayeesPage();
+  else if (state.tab === 'accounts') renderAccountsPage();
   else renderSettings();
 }
 

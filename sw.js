@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION whenever you deploy changes so phones pick them up.
-const VERSION = 'v44';
+const VERSION = 'v45';
 const CACHE = `budget-${VERSION}`;
 const ASSETS = [
   './',
@@ -13,6 +13,7 @@ const ASSETS = [
   './js/view-entries.js',
   './js/view-transactions.js',
   './js/view-payees.js',
+  './js/view-accounts.js',
   './js/view-settings.js',
   './js/sheet-entry.js',
   './js/sheet-budgets.js',

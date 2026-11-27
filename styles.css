@@ -726,3 +726,16 @@ button.cat { display: block; }
 .toolbar .seg.p-seg { flex: 0 0 auto; }
 .p-seg button { white-space: nowrap; }
 .tx-bulk .btn.small { background: var(--card); }
+
+/* ---------- Accounts page, on a computer ---------- */
+.a-table th span { display: block; padding: 10px 8px; }
+.a-table .a-name .g-open { font-weight: 600; }
+.a-table .a-kind select { border: 0; border-radius: 8px; padding: 4px 6px; background: var(--fill); color: var(--text); font-size: 14px; }
+.a-table .a-bal, .a-table .a-out, .a-table .a-in, .a-table .a-count { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.a-table .a-bal { font-weight: 600; }
+.a-table td small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+.a-table .a-last { white-space: nowrap; color: var(--muted); }
+.a-table .a-act { text-align: right; white-space: nowrap; padding-right: 16px; }
+.a-table .a-act .btn { display: inline-block; }
+.a-table .a-act .link { margin-left: 10px; }
+.a-table tfoot td { border-top: 0.5px solid var(--line); font-weight: 600; padding-top: 10px; padding-bottom: 10px; }

@@ -199,7 +199,7 @@ export function renderTransactions() {
   </details>` : '';
 
   const origin = tx.origin ? `<div class="tx-origin">
-      <button type="button" class="link small-link" data-action="tx-back">‹ Overview</button>
+      <button type="button" class="link small-link" data-action="tx-back">‹ ${tx.origin.back === 'accounts' ? 'Accounts' : 'Overview'}</button>
       <span>${esc(tx.origin.label)}${tx.origin.amount != null ? ` · <strong>${money(tx.origin.amount)}</strong>` : ''}</span>
       ${tx.origin.note ? `<span class="muted">${esc(tx.origin.note)}</span>` : ''}
     </div>` : '';
@@ -283,7 +283,7 @@ export const txActions = {
   'tx-group': t => { state.tx.group = state.tx.group === t.dataset.id ? '' : t.dataset.id; redraw(); },
   'tx-open': t => { const e = state.entries.find(x => x.id === t.dataset.id); if (e) openSheet(e, 'transactions'); },
   'tx-select-none': () => { state.tx.sel.clear(); renderTransactions(); },
-  'tx-back': () => { state.tab = 'overview'; state.tx.origin = null; window.scrollTo(0, 0); render(); },
+  'tx-back': () => { state.tab = state.tx.origin?.back || 'overview'; state.tx.origin = null; window.scrollTo(0, 0); render(); },
   'tx-move': () => moveSelected(),
 };
 
@@ -357,16 +357,18 @@ async function moveSelected() {
  *   kind   — 'category' | 'group' | 'tag' | 'type' (value: 'income' | 'expense')
  *   period — 'month' | '12m' | 'm:YYYY-MM' | 'all'
  *   label, amount, note — shown at the top, so it's clear where you came from
+ *   back   — the tab '‹ …' goes back to: 'overview' or 'accounts'
  */
-export function drillDown({ kind, value, period = 'month', type = 'all', label = '', amount = null, note = '' }) {
+export function drillDown({ kind, value, period = 'month', type = 'all', label = '', amount = null, note = '', back = 'overview' }) {
   const tx = freshFilters();
   tx.period = period;
   tx.type = type;
   if (kind === 'category') tx.category = value;
   else if (kind === 'group') tx.group = value;
   else if (kind === 'type') tx.type = value;
+  else if (kind === 'account') tx.account = value;
   else if (kind === 'tag' && !state.tags.some(t => lc(t) === lc(value))) state.tags = [...state.tags, value];
-  tx.origin = { label, amount, note };
+  tx.origin = { label, amount, note, back };
   state.tx = tx;
   state.tab = 'txns';
   window.scrollTo(0, 0);
