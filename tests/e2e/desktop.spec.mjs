@@ -1,6 +1,7 @@
 // The layout on a computer: sidebar instead of the bottom tab bar, and cards in columns.
 // Runs only in the desktop-chromium project (see playwright.config.mjs).
-import { test, expect, openWithSample, tab, row, card } from './helpers.mjs';
+import { fileURLToPath } from 'node:url';
+import { test, expect, openWithSample, tab, row, card, nameAccounts } from './helpers.mjs';
 
 const box = loc => loc.boundingBox();
 const noSideScroll = page => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
@@ -84,4 +85,40 @@ test('the edit sheet is wider, and opens from a click', async ({ page }) => {
   expect(sheet.width).toBeGreaterThan(600);
   expect(sheet.width).toBeLessThanOrEqual(720);
   await shot(page, 'sheet');
+});
+
+test('Transactions: a table with columns that sort, opened from the Overview', async ({ page }) => {
+  await openWithSample(page);
+  await tab(page, 'settings');
+  await page.locator('#bankFile').setInputFiles(fileURLToPath(new URL('../fixtures/bank/commbank-credit-card.csv', import.meta.url)));
+  await nameAccounts(page);
+  await page.locator('#import .sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+
+  // Where it goes → the category's payments, with the breakdown open above the table
+  await tab(page, 'overview');
+  await card(page, 'Where it goes').locator('button.cat', { hasText: 'Subscriptions' }).click();
+  await expect(page.locator('.tabbar [data-tab=txns]')).toHaveClass(/active/);
+  await expect(page.locator('.tx-groups[open]')).toBeVisible();
+  await shot(page, 'transactions-drill');
+
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  for (const h of ['Date', 'Payee', 'Payee group', 'Category', 'Account', 'Method', 'Amount']) {
+    await expect(page.locator('.tx-table thead th button', { hasText: new RegExp(`^${h}[▲▼]?$`) })).toBeVisible();
+  }
+  await expect(page.locator('[data-tx=sortby]')).toBeHidden(); // the headings sort instead
+  expect(await noSideScroll(page)).toBe(true);
+  // a heading sorts; clicking again turns it round
+  const head = page.locator('.tx-table th.tx-payee');
+  await head.locator('button').click();
+  await expect(head).toHaveAttribute('aria-sort', 'ascending');
+  const names = await page.locator('.tx-table tbody .tx-name').allTextContents();
+  expect(names).toEqual([...names].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())));
+  await head.locator('button').click();
+  await expect(head).toHaveAttribute('aria-sort', 'descending');
+  // the filters sit on one row
+  const ys = await page.locator('.tx-filters label:visible').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().y)));
+  expect(new Set(ys).size).toBe(1);
+  await page.locator('.tx-table tbody tr').nth(1).locator('input[type=checkbox]').check();
+  await shot(page, 'transactions');
 });

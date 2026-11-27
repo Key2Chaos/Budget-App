@@ -5,6 +5,7 @@ import { TITLES, state, $, sheet } from './core.js';
 import { renderOverview } from './view-overview.js';
 import { renderEntries } from './view-entries.js';
 import { renderSettings } from './view-settings.js';
+import { renderTransactions } from './view-transactions.js';
 
 export async function reload() { state.entries = await db.allEntries(); render(); }
 
@@ -14,6 +15,7 @@ export function render() {
   document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === state.tab));
   if (state.tab === 'overview') renderOverview();
   else if (state.tab === 'entries') renderEntries();
+  else if (state.tab === 'txns') renderTransactions();
   else renderSettings();
 }
 

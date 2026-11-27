@@ -25,6 +25,22 @@ No backend, no account. All data lives on the device in IndexedDB.
     payments in one group: the payee's group, or the one that already has most of them.
   - **Deleting a group** moves its imported payments to *Ungrouped spending* (or income). Nothing
     imported is lost, and its payees can be put in another group.
+- **Transactions** (its own tab): every payment in every payee group in one table — date, payee,
+  payee group, category, account, method and amount.
+  - Search (payees, the bank's text, notes, amounts), choose a period (this month, last 12 full
+    months, a custom range…), and filter by money in or out, category, payee group, account or
+    method. Tag filters apply here too.
+  - On a computer, click a column heading to sort by it, and again to reverse it. On a phone,
+    *Filters & sort* opens the same filters and a Sort menu.
+  - Tick payments (or *Select all*) and **Move to…** another payee group in one go. Groups the app
+    made that are left empty are removed, as with every move.
+  - **By payee group** shows each group's total for the payments shown and, for whole months, what
+    the Overview counts for it: the payments logged, plus the schedule for any days they don't
+    cover. That's why the two can differ (e.g. a bill due later this month).
+- **Click a figure on the Overview to see the payments behind it**: Income, Expenses, a budget, a
+  *Where it goes* bar (category, payee group or tag), or *See the payments ›* under a month on the
+  chart. The Transactions tab opens already filtered, with *‹ Overview* to go back. Opening a tag's
+  payments turns that tag's filter on.
 - **Payees** (Settings → Payees): who you pay and who pays you, from bank imports. Each payee is in
   one group, so totals always add up.
   - Rename a payee, or choose its group. Its payments move there, and future imports follow.
@@ -277,7 +293,7 @@ waits for it to install, and reloads, so you can confirm a deploy has arrived wi
 | --- | --- | --- |
 | `npm test` (or `node tests/run.mjs`) | Old backups still import; date and money maths; the offline file list | Before every commit (pre-commit hook) and on GitHub |
 | `npm run test:e2e` | The real app in a phone-sized browser: every screen, adding, editing and deleting, backups, CSV, labels, payments, budgets, payday, offline mode, upgrading old saved data, focus. Also an **Australian** run (en-AU, Sydney time, including just after midnight) | On GitHub after every push, in Chromium and **WebKit** (Safari's engine) |
-| (same command) `tests/e2e/desktop.spec.mjs` | The computer layout in a 1280×800 window: sidebar, columns, chart size, no sideways scrolling, back to the phone layout when narrowed. Set `E2E_SHOTS=1` to save screenshots to `test-results/` | The `desktop-chromium` project, locally and on GitHub |
+| (same command) `tests/e2e/desktop.spec.mjs` | The computer layout in a 1280×800 window: sidebar, columns, chart size, no sideways scrolling, back to the phone layout when narrowed, the Transactions table and its sorting headings. Set `E2E_SHOTS=1` to save screenshots to `test-results/` | The `desktop-chromium` project, locally and on GitHub |
 
 Setup for the browser tests is a one-off `npm install`. Locally they use your installed Microsoft Edge.
 To also run WebKit: `npx playwright install webkit`, then `E2E_WEBKIT=1 npm run test:e2e`.
@@ -354,7 +370,7 @@ ask for the history to be rewritten if you also want it gone from old commits.
 | `js/app.js` | Entry point: button actions, global events, start-up |
 | `js/core.js` | Shared state, constants and helpers (money, dates, labels, tags, toast). Imports no other UI file, so it always loads first |
 | `js/render.js` | Draws the current tab; `reload()` re-reads entries |
-| `js/view-overview.js`, `js/view-entries.js`, `js/view-settings.js` | The three tabs |
+| `js/view-overview.js`, `js/view-entries.js`, `js/view-transactions.js`, `js/view-settings.js` | The four tabs. `view-transactions.js` also has `drillDown()`, which the Overview's figures use |
 | `js/sheet-entry.js` | The entry sheet (Summary, Transactions, Accounts), save and delete |
 | `js/sheet-budgets.js`, `js/sheet-labels.js` | The Budgets and Manage labels sheets |
 | `js/importer.js` | Bank import screens: review, apply, undo (the pure logic is in `bank.js`) |
