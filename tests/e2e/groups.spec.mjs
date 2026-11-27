@@ -273,3 +273,23 @@ test('start-up tidies empty groups earlier moves left behind, once; groups and s
   await expect(row(page, 'Fuel (mine)')).toBeVisible();
   await expect(row(page, 'Gym (set by me)')).toBeVisible();
 });
+
+test('Undo after deleting a group puts it back, with its payments and payees', async ({ page }) => {
+  await openWithSample(page);
+  await importWithNewGroup(page);
+  await editEntry(page, 'School things');
+  await page.getByRole('button', { name: 'Delete payee group' }).click();
+  await expect(page.locator('#toast')).toContainText('1 payment moved to Ungrouped spending');
+  await page.locator('#toast').getByRole('button', { name: 'Undo' }).click();
+  await expect(page.locator('#toast')).toContainText('“School things” is back');
+  await tab(page, 'entries');
+  await expect(row(page, 'School things')).toBeVisible();
+  await expect(row(page, 'Ungrouped spending')).toHaveCount(0); // it was only made for the deleted group's payment
+  await editEntry(page, 'School things');
+  await sheetPage(page, 'transactions');
+  await expect(page.locator('#payments')).toContainText('KMART');
+  await page.keyboard.press('Escape');
+  await tab(page, 'settings');
+  await page.locator('[data-action=open-payees]').click();
+  await expect(page.locator('#payees [data-payee]', { hasText: 'Kmart Bondi' })).toContainText('School things');
+});

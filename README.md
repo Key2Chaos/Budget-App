@@ -42,6 +42,15 @@ No backend, no account. All data lives on the device in IndexedDB.
     newest statement, money out and in this month (transfers between your own accounts left out),
     number of payments and the last one, with a total row. Click an account, or *Payments ›*, to
     see its payments on the Transactions tab (*‹ Accounts* goes back). *Rename* is there too.
+- **Keyboard shortcuts** (press `?` for the list, or *Keyboard shortcuts* at the foot of the
+  sidebar): `N` new payee group, `/` search, `1`–`6` the tabs and pages in the sidebar's order, `Esc`
+  closes what's open or clears ticked rows, `Ctrl`/`⌘` `Z` undoes. They don't fire while you're
+  typing in a box.
+- **Undo after deleting a payee group**: the message that says it's deleted has an *Undo* button
+  (or `Ctrl`/`⌘` `Z`) for a few seconds. It brings back the group, its payments, its payees and its
+  budget.
+- **Drop a file anywhere** on the window to import it: a bank statement (.csv, several at once is
+  fine) or a backup (.json).
 - **Transactions** (its own tab): every payment in every payee group in one table — date, payee,
   payee group, category, account, method and amount.
   - Search (payees, the bank's text, notes, amounts), choose a period (this month, last 12 full
@@ -389,6 +398,7 @@ ask for the history to be rewritten if you also want it gone from old commits.
 | `js/render.js` | Draws the current tab; `reload()` re-reads entries |
 | `js/view-overview.js`, `js/view-entries.js`, `js/view-transactions.js`, `js/view-settings.js` | The four tabs. `view-transactions.js` also has `drillDown()`, which the Overview's figures use |
 | `js/view-payees.js`, `js/view-accounts.js` | The Payees and Accounts pages (computers only, from the sidebar) |
+| `js/shortcuts.js` | Keyboard shortcuts, their `?` list, and dropping a file anywhere to import it |
 | `js/sheet-entry.js` | The entry sheet (Summary, Transactions, Accounts), save and delete |
 | `js/sheet-budgets.js`, `js/sheet-labels.js` | The Budgets and Manage labels sheets |
 | `js/importer.js` | Bank import screens: review, apply, undo (the pure logic is in `bank.js`) |

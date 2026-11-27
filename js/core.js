@@ -127,16 +127,31 @@ export function keepToast() {
   if (t?.classList.contains('show') && sheet.open && t.parentElement !== sheet) sheet.append(t);
 }
 
-export function toast(msg) {
+/**
+ * Show a short message. With `undo` (a function), it has an Undo button and stays up longer;
+ * Ctrl/⌘ Z runs it too, while the message shows (toast.undo).
+ */
+export function toast(msg, { undo } = {}) {
   // Keep our own reference: the toast may get detached when the sheet's contents are replaced.
   const t = (toast.el ||= $('#toast'));
   // an open <dialog> sits above everything else, so show the toast inside it
   const host = $('#sheet').open ? $('#sheet') : document.body;
   if (t.parentElement !== host) host.append(t);
   t.textContent = msg;
+  toast.undo = null;
+  if (undo) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'toast-undo';
+    b.textContent = 'Undo';
+    toast.undo = async () => { toast.undo = null; t.classList.remove('show', 'has-action'); await undo(); };
+    b.addEventListener('click', toast.undo);
+    t.append(' ', b);
+  }
+  t.classList.toggle('has-action', !!undo);
   t.classList.add('show');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.classList.remove('show'), 2400);
+  toast._t = setTimeout(() => { t.classList.remove('show', 'has-action'); toast.undo = null; }, undo ? 7000 : 2400);
 }
 
 // ---------- Tags ----------

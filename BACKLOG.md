@@ -10,7 +10,7 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | # | Item | Size | Why |
 |---|------|------|-----|
 | 1 | **Groups, next steps** ([docs/DESIGN.md](docs/DESIGN.md) section 8): split one transaction across groups; choose a payee and account for payments logged by hand; archive groups and accounts; "Where it goes" by payee, account or method; Balance now as the total of chosen accounts | M | The parts of the design not built in the first round |
-| 2 | **Undo after delete.** Show a toast with an *Undo* button instead of (or as well as) the confirm box. Covers entries, payments, labels and budgets | S | Mistakes are easy to recover from. Fewer pop-ups |
+| 2 | **Undo after delete.** Show a toast with an *Undo* button instead of (or as well as) the confirm box. Done for payee groups (28 Nov); still to do for payments, labels and budgets (`toast(msg, { undo })` is there to use) | S | Mistakes are easy to recover from. Fewer pop-ups |
 | 3 | **Add to Calendar.** Export contract end and notice dates (and optionally big yearly bills) as a calendar file, with an alert before each | S | Reminders that work offline, with no server |
 | 4 | **Duplicate entry.** A "Duplicate" button in the edit sheet | S | Faster to add similar bills |
 | 5 | **Shorter payment logs.** Show the latest 12 payments with "Show all", newest first | S | Long logs make the edit sheet very long after a year or two |
@@ -20,8 +20,6 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | # | Item | Size | Why |
 |---|------|------|-----|
 | D2 | **Open a payee group in a side panel** instead of a pop-up, with ↑/↓ to step through the list | M | Click from one group to the next without closing anything |
-| D4 | **Keyboard shortcuts**: N new group, / search, Esc close, Ctrl+Z undo (with backlog #2) | S | Faster on a computer |
-| D5 | **Drop a CSV anywhere** on the window to import it | S | |
 | D6 | **Chart details on hover**, not only on click | S | |
 | D7 | **Edit in place** in the tables: category, amount, tags | M | Fewer trips into the edit sheet |
 
@@ -88,6 +86,7 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-22 | Design for accounts, payees and groups agreed ([docs/DESIGN.md](docs/DESIGN.md)). `js/app.js` split into one file per screen (no change in behaviour) |
 | 2026-11-22 | Bank import: every unmatched payee gets an entry of its own (no more Everyday spending by default); very similar payees share one; transfers are taken out of those entries too. Payment log: signed amounts with ±, credits in green, "Received" / "Paid back" on income |
 | 2026-11-26 | Smarter schedules: stricter recurring detection (3+ payments, refunds and stopped ones left out); Variable estimates over 12 months, only after 3 payments, and *Don't forecast* for projects; Overview "Check these groups" for bills that stopped and Variable groups paid on a schedule; Settings → Tidy up groups (merge duplicates, suggested categories, new *Eating out* category). Bank import: you name or choose each statement's account unless it's recognised; DD/BPAYN methods; better shop names; import notes follow the group's payee |
+| 2026-11-28 | **Keyboard shortcuts** (`?` lists them), **Undo** after deleting a payee group, and **drop a file anywhere** to import a statement or backup |
 | 2026-11-27 | **Accounts page** on a computer: type, balance, money out and in this month, payments, and a click through to its payments on Transactions |
 | 2026-11-27 | **Payees page** on a computer: a sortable table with several payees put in a payee group, ignored or marked as transfers at once |
 | 2026-11-27 | Payee groups as a sortable table on a computer (D1); Payees and Accounts in the sidebar (D3) |

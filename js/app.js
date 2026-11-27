@@ -17,6 +17,7 @@ import { openPayees } from './sheet-payees.js';
 import { openTidy } from './sheet-tidy.js';
 import { sweepEmptyGroups, removedNote } from './groups.js';
 import * as Bank from './bank.js';
+import { initShortcuts, openShortcuts } from './shortcuts.js';
 import { exportBackup, exportCSV, importBackup, sampleEntries } from './backup.js';
 
 /** Change one group, save it and say what happened. */
@@ -69,6 +70,7 @@ const actions = {
   'manage-labels': () => openManage('category'),
   'manage-budgets': manageBudgets,
   'import-bank': () => $('#bankFile').click(),
+  shortcuts: () => openShortcuts(),
   'rename-account': t => renameAccount(t.dataset.key),
   'open-accounts': () => openAccounts(),
   'open-payees': () => openPayees(),
@@ -184,6 +186,8 @@ document.querySelector('.tabbar').addEventListener('click', ev => {
   render();
 });
 $('#addBtn').addEventListener('click', () => openSheet());
+$('#keysBtn').addEventListener('click', () => openShortcuts());
+initShortcuts();
 // The chart is drawn at a different size on computers, and Payee groups is a table there, so redraw
 // when the window crosses the breakpoint
 wideScreen.addEventListener('change', () => {
