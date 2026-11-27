@@ -49,6 +49,12 @@ const actions = {
     amount: d.amount === '' ? null : Number(d.amount), note: d.note }); },
   range: t => { state.range = t.dataset.range === 'all' ? 'all' : Number(t.dataset.range); state.sel = null; render(); },
   filter: t => { state.filter = t.dataset.filter; render(); },
+  // Payee groups table: click a heading to sort by it, again to turn it round (names A–Z, amounts biggest first)
+  'grp-sort': t => {
+    const k = t.dataset.key, s = state.groupSort;
+    state.groupSort = { key: k, dir: s.key === k ? -s.dir : (['name', 'category', 'schedule', 'next'].includes(k) ? 1 : -1) };
+    render();
+  },
   tag: t => {
     const tag = t.dataset.tag;
     const on = state.tags.some(x => x.toLowerCase() === tag.toLowerCase());
@@ -165,6 +171,8 @@ view.addEventListener('change', async ev => {
   }
 });
 document.querySelector('.tabbar').addEventListener('click', ev => {
+  const o = ev.target.closest('button[data-open]'); // Payees / Accounts in the sidebar on a computer
+  if (o) return o.dataset.open === 'payees' ? openPayees() : openAccounts();
   const b = ev.target.closest('button[data-tab]');
   if (!b) return;
   if (state.tab === b.dataset.tab) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
@@ -173,8 +181,9 @@ document.querySelector('.tabbar').addEventListener('click', ev => {
   render();
 });
 $('#addBtn').addEventListener('click', () => openSheet());
-// The chart is drawn at a different size on computers, so redraw it when the window crosses the breakpoint
-wideScreen.addEventListener('change', () => { if (state.tab === 'overview') render(); });
+// The chart is drawn at a different size on computers, and Payee groups is a table there, so redraw
+// when the window crosses the breakpoint
+wideScreen.addEventListener('change', () => { if (state.tab === 'overview' || state.tab === 'entries') render(); });
 
 // ---------- Boot ----------
 (async function init() {

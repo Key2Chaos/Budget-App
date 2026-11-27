@@ -687,3 +687,31 @@ button.cat { display: block; }
   .tx-side { order: 0; position: sticky; top: 80px; }
   .tx-side .tx-groups { margin-top: 14px; }
 }
+
+/* ---------- Payee groups as a table, on a computer ---------- */
+.g-table tbody tr { cursor: pointer; }
+.g-table tbody tr.ended td { color: var(--muted); }
+.g-table tbody tr.ended .g-open { color: var(--muted); }
+.g-open { border: 0; background: none; padding: 0; font: inherit; font-weight: 500; color: var(--text); text-align: left; }
+.g-name .row-tags { margin-top: 3px; }
+.g-sched small, .g-last small { display: block; font-size: 12px; color: var(--muted); }
+.g-next, .g-last { white-space: nowrap; }
+.g-table .g-amt, .g-table .g-per { text-align: right; white-space: nowrap; font-weight: 600; }
+.g-table th.g-amt button, .g-table th.g-per button { text-align: right; }
+.g-table .g-amt small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+.g-table .g-per { padding-right: 16px; }
+.g-table tbody tr.ended .g-amt { opacity: 0.6; }
+@media (hover: hover) and (pointer: fine) {
+  .g-table tbody tr:hover td { background: color-mix(in srgb, var(--fill) 50%, transparent); }
+  .g-table tbody tr:hover .g-open { color: var(--accent); }
+}
+
+/* Sidebar shortcuts to Payees and Accounts: computers only */
+.tabbar .side-only { display: none; }
+@media (min-width: 900px) {
+  .tabbar .side-only { display: flex; }
+  .tabbar .side-head {
+    display: block; height: auto; margin: 18px 12px 4px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+  }
+}

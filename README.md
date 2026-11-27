@@ -25,6 +25,13 @@ No backend, no account. All data lives on the device in IndexedDB.
     payments in one group: the payee's group, or the one that already has most of them.
   - **Deleting a group** moves its imported payments to *Ungrouped spending* (or income). Nothing
     imported is lost, and its payees can be put in another group.
+- **Payee groups on a computer** are a table: name and tags, category, schedule, next due, amount,
+  what each costs a month (or a year, or the last 12 months, following the Overview's switch) and
+  when it was last paid. Click a heading to sort by it, and again to reverse it; it starts with the
+  biggest a month first. Click a row to open the group. A phone keeps the list (Recurring, One-off,
+  Ended).
+- **Payees and Accounts in the sidebar** on a computer, under *Your data* (on a phone they stay in
+  Settings).
 - **Transactions** (its own tab): every payment in every payee group in one table — date, payee,
   payee group, category, account, method and amount.
   - Search (payees, the bank's text, notes, amounts), choose a period (this month, last 12 full
