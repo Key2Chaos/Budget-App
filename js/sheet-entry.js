@@ -59,9 +59,9 @@ export function payeesSection(entry) {
     <section class="card form">${groups.map(g => `
       <div class="field payee-row"><span>${esc(payeeLabel(g.key))}<br>
         ${bankTexts(g)}<span class="muted small-text">${g.n} payment${g.n === 1 ? "" : "s"} · ${money(g.total)} · last ${esc(fmtDate(g.last))}</span></span>
-        <button type="button" class="btn small" data-move-payee="${esc(g.key)}" aria-label="Move ${esc(payeeLabel(g.key))} to another group">Move to…</button></div>`).join('')}
+        <button type="button" class="btn small" data-move-payee="${esc(g.key)}" aria-label="Move ${esc(payeeLabel(g.key))} to another payee group">Move to…</button></div>`).join('')}
     </section>
-    <p class="fine pad-x">Move a payee's payments to another group, or type a name for a new one. Future imports send that
+    <p class="fine pad-x">Move a payee's payments to another payee group, or type a name for a new one. Future imports send that
       payee there too.</p>`;
 }
 
@@ -305,7 +305,7 @@ export function payRow(p, type = 'expense') {
     <input type="hidden" name="payid" value="${esc(p.id || '')}">
     <button type="button" class="icon-btn small" data-remove-payment aria-label="Remove payment">−</button>
     ${p.note || p.id ? `<div class="pay-note"><span class="pay-note-text">${p.note ? esc(p.note) : ''}</span>${p.id && p.date ? `<button type="button" class="link small-link pay-move"
-      data-move-payment="${esc(p.id)}" aria-label="Move this payment to another group">Move…</button>` : ''}</div>` : ''}
+      data-move-payment="${esc(p.id)}" aria-label="Move this payment to another payee group">Move…</button>` : ''}</div>` : ''}
   </div>`;
 }
 
@@ -319,11 +319,11 @@ export function openSheet(entry = null, tab = 'summary') {
   <form id="entryForm" class="${isNew ? '' : 'tabbed'}" novalidate>
     <div class="sheet-head">
       <button type="button" class="link" data-close>Cancel</button>
-      <h2 tabindex="-1" autofocus>${isNew ? 'New group' : 'Edit group'}</h2>
+      <h2 tabindex="-1" autofocus>${isNew ? 'New payee group' : 'Edit payee group'}</h2>
       <button type="submit" class="link strong">Save</button>
     </div>
     <div class="sheet-body">
-      ${isNew ? '' : `<div class="seg sheet-tabs" role="tablist" aria-label="Group pages">
+      ${isNew ? '' : `<div class="seg sheet-tabs" role="tablist" aria-label="Payee group pages">
         ${[['summary', 'Summary'], ['transactions', 'Transactions'], ['accounts', 'Accounts']]
           .map(([k, label]) => `<button type="button" role="tab" data-page="${k}" aria-selected="${k === tab}" class="${k === tab ? 'on' : ''}">${label}</button>`).join('')}
       </div>`}
@@ -419,8 +419,8 @@ export function openSheet(entry = null, tab = 'summary') {
           <textarea name="notes" rows="3" placeholder="Account number, renewal terms…">${esc(e.notes)}</textarea></label>
       </section>
 
-      ${isNew ? '' : `<button type="button" class="btn" data-merge-group>Merge into another group…</button>
-        <button type="button" class="btn danger-btn" data-delete>Delete group</button>`}
+      ${isNew ? '' : `<button type="button" class="btn" data-merge-group>Merge into another payee group…</button>
+        <button type="button" class="btn danger-btn" data-delete>Delete payee group</button>`}
       </div>
 
       ${isNew ? '' : `<div class="tab-panel ${tab === 'transactions' ? 'on' : ''}" data-panel="transactions" role="tabpanel">

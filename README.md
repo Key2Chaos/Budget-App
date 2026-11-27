@@ -5,7 +5,7 @@ No backend, no account. All data lives on the device in IndexedDB.
 
 ## Features
 
-- **Groups** (called *entries* before Nov 2026): each bill, subscription, income or kind of spending
+- **Payee groups** (called *entries*, then *groups*, before Nov 2026): each bill, subscription, income or kind of spending
   is a group. A group collects the payments to one company, even when your statements show it in
   different ways or from different accounts. For example, "TELSTRA BPAY 1234", "Telstra Direct
   Debit" and a Telstra card payment all go to *Telstra*. A group can also pool several companies,
@@ -37,7 +37,7 @@ No backend, no account. All data lives on the device in IndexedDB.
 - **Income and expenses**, each with a name, amount, frequency (one-off, weekly, fortnightly,
   4-weekly, monthly, quarterly, 6-monthly, yearly or **variable**), first payment date, category and
   payment method.
-- **Variable (no set schedule)**: for things paid whenever, like prepaid top-ups or fuel.
+- **No set schedule** (called *Variable* before Nov 2026; not the same as *Amount varies*): for things paid whenever, like prepaid top-ups or fuel.
   - The amount is optional, and means "about per month".
   - There are no due dates, so these never show as upcoming or overdue.
   - Each month counts what you actually logged: imported or typed payments land on the day they
@@ -48,10 +48,10 @@ No backend, no account. All data lives on the device in IndexedDB.
     counts.
   - If one is paid on a regular schedule after all (e.g. monthly health insurance), the Overview
     offers to set it ("Looks monthly · Set monthly").
-- **Check these groups** (Overview): a bill whose bank payments stopped coming (none for over two
+- **Check these payee groups** (Overview): a bill whose bank payments stopped coming (none for over two
   periods, while later statements have been imported) is left out of the forecast and pointed out:
   *End it* sets its cancelled date to the last payment; *Still going* keeps it.
-- **Tidy up groups** (Settings → Bank statements): groups that look like the same thing twice
+- **Tidy up payee groups** (Settings → Bank statements): groups that look like the same thing twice
   ("Sushi" and "Sushi Ryu", or two groups with a payee in common), merged in one tap; and
   categories for groups with none, from well-known names (Woolworths → Groceries, McDonald's →
   Eating out, 7-Eleven → Transport).
@@ -87,11 +87,14 @@ No backend, no account. All data lives on the device in IndexedDB.
   filter. Picking several shows entries with *all* of them. The filter applies to the Overview totals,
   chart, contracts and upcoming payments as well as the Entries list. The "Where it goes" breakdown
   can group by tag, and search matches `#tag`.
-- **Month / Year switch**: see totals, "Where it goes", biggest changes and the Entries list per
-  month or per year. The yearly figures are at today's rates: everything running today × 12.
+- **Month / Year / 12 mo switch**: see totals, "Where it goes", biggest changes and the Payee groups
+  list per month or per year, two ways:
+  - **Year**: at today's rates, everything running today × 12. What the coming year looks like.
+  - **12 mo**: what the last 12 full months actually came to (e.g. Nov 2025 – Oct 2026), one-offs and
+    since-ended bills included, counted the same way as the chart.
 - **Biggest changes**: the bills whose cost changed most over the chart's period, including new and
   ended ones.
-- **Budgets** (Settings → Budgets): a monthly limit for a category or a tag. The Overview shows
+- **Budgets** (Settings → Budgets): a monthly limit for a category, a payee group or a tag. The Overview shows
   progress bars, amber from 90% and red when over. Saving an entry that pushes a budget over, or
   further over, shows a warning. Budgets are included in backups.
 - **Until payday**: everything due before your next pay. Optionally enter your current balance to
@@ -178,7 +181,7 @@ No backend, no account. All data lives on the device in IndexedDB.
     bank account, and the payees it's made of) as separate pages. Save keeps changes from all three.
   - **New entry from any transaction:** the dropdown's *+ New entry* creates one for that payee, and
     takes their other undecided transactions with it. It becomes a recurring entry if the payee looks
-    recurring, otherwise *Variable (no set schedule)*, even with one transaction, so their later
+    recurring, otherwise *No set schedule*, even with one transaction, so their later
     purchases have somewhere to go.
   - **Transfers between your own accounts** (paying off a card, moving money to savings) aren't
     spending or income, so they're shown under *Transfers between your accounts* and not logged.
@@ -211,7 +214,7 @@ Each label has one job:
 
 | Label | Answers | How many | Style | Examples |
 | --- | --- | --- | --- | --- |
-| **Group** | *Which company or thing is it really?* | One per payee | Its own name | Telstra, Netflix, Coffee |
+| **Payee group** | *Which company or thing is it really?* | One per payee | Its own name | Telstra, Netflix, Coffee |
 | **Category** | *What kind of spending is it?* | Exactly one per group, so the percentages add up to 100% | Title Case, broad (about 10–15 in total) | Housing, Subscriptions, Phone & Internet |
 | **Payment method** | *How does the money move?* | One per payment (imports guess it; the group's is the default) | Sentence case | BPAY, Direct debit, Card |
 | **Account** | *Which of my accounts?* | One per imported payment | Your name for it | Everyday card, Savings |

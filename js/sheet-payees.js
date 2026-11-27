@@ -73,7 +73,7 @@ export function openPayees() {
           <div class="row-amt">${r.pays.length ? money(Math.abs(r.total)) : ''}<small>${r.pays.length} payment${r.pays.length === 1 ? '' : 's'}</small></div>
         </button>`).join('')}</section>`
         : `<p class="empty-small">${rows.length ? 'No payees match.' : 'No payees yet. They’re added when you import a bank statement.'}</p>`}
-      <p class="fine pad-x">A payee is who the bank says you paid, or were paid by. Put payees in a group to see one
+      <p class="fine pad-x">A payee is who the bank says you paid, or were paid by. Put payees in a payee group to see one
         company together when it shows up on your statements in different ways or from different accounts.</p>
     </div>
   </div>`;
@@ -119,15 +119,15 @@ export function openPayee(id) {
       <p class="fine pad-x">Your name is used on imports and for matching. Leave it blank to use the bank's text.</p>
 
       <div class="seg payee-kind" role="radiogroup" aria-label="What this payee is">
-        ${[['group', 'In a group'], ['ignore', 'Always ignore'], ['transfer', 'Transfer']].map(([k, label]) =>
+        ${[['group', 'In a payee group'], ['ignore', 'Always ignore'], ['transfer', 'Transfer']].map(([k, label]) =>
           `<button type="button" role="radio" aria-checked="${kind === k}" data-kind="${k}" class="${kind === k ? 'on' : ''}">${label}</button>`).join('')}
       </div>
       ${kind === 'group' ? `<section class="card form">
-        <div class="field"><span>Group</span>
+        <div class="field"><span>Payee group</span>
           <span class="acct-val">${g ? esc(g.name) : '<span class="muted">Ungrouped</span>'}</span>
-          <button type="button" class="btn small" data-choose-group aria-label="Choose a group for ${esc(title)}">${g ? 'Change…' : 'Choose…'}</button></div>
+          <button type="button" class="btn small" data-choose-group aria-label="Choose a payee group for ${esc(title)}">${g ? 'Change…' : 'Choose…'}</button></div>
       </section>
-      <p class="fine pad-x">Choosing a group moves this payee's payments there${row.pays.length ? ` (${row.pays.length})` : ''}, and future imports send them there too.
+      <p class="fine pad-x">Choosing a payee group moves this payee's payments there${row.pays.length ? ` (${row.pays.length})` : ''}, and future imports send them there too.
         ${g ? '<button type="button" class="link small-link" data-ungroup>Take out of this group</button>' : ''}</p>`
       : `<p class="fine pad-x">${kind === 'ignore' ? 'Their transactions are skipped on every import.'
         : 'Money between your own accounts isn’t spending or income, so their transactions aren’t logged.'} Payments already logged stay where they are.</p>`}

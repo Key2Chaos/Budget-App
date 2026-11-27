@@ -75,8 +75,8 @@ export async function importBackup(file) {
     let data;
     try { data = JSON.parse(await file.text()); } catch { throw new Error('The file isn’t valid JSON.'); }
     const { entries: valid, settings, skipped } = migrateBackup(data);
-    const skipNote = skipped ? `\n\n${skipped} damaged group${skipped === 1 ? '' : 's'} will be skipped.` : '';
-    if (!confirm(`Import ${valid.length} groups? Groups already on this device with the same ID will be replaced.${skipNote}`)) return;
+    const skipNote = skipped ? `\n\n${skipped} damaged payee group${skipped === 1 ? '' : 's'} will be skipped.` : '';
+    if (!confirm(`Import ${valid.length} payee groups? Payee groups already on this device with the same ID will be replaced.${skipNote}`)) return;
     await db.putEntries(valid);
     if (settings.currency && !state.entries.length) { state.settings.currency = settings.currency; fmtCache.clear(); }
     // Add any budgets from the backup that this device doesn't have yet
@@ -92,7 +92,7 @@ export async function importBackup(file) {
     if (pys.length) state.settings.payees = [...M.payeesOf(state.settings), ...pys];
     await saveSettings();
     await reload();
-    toast(`Imported ${valid.length} groups`);
+    toast(`Imported ${valid.length} payee groups`);
   } catch (e) {
     alert('Import failed: ' + e.message);
   }

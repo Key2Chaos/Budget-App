@@ -105,12 +105,12 @@ export function openUndoImports() {
         <label class="field toggle"><span>Show ${n(ignored, 'ignored transaction or transfer', 'ignored transactions and transfers')} again</span>
           <input type="checkbox" name="ignored" ${ignored ? 'checked' : 'disabled'}></label>
       </section>
-      ${created.length ? `<div class="group-title">Groups added by imports (${created.length}) — switch off any to keep</div>
+      ${created.length ? `<div class="group-title">Payee groups added by imports (${created.length}) — switch off any to keep</div>
       <section class="card form">${created.map(e => `
         <label class="field toggle"><span>${esc(e.name)}<br><span class="muted small-text">${esc(C.FREQ[e.frequency]?.label || '')} · from ${esc(fmtDate(e.startDate))}</span></span>
           <input type="checkbox" name="del" value="${esc(e.id)}" checked></label>`).join('')}
       </section>` : ''}
-      <p class="fine pad-x">Kept: payments you logged yourself, your other groups, your names for payees, account names
+      <p class="fine pad-x">Kept: payments you logged yourself, your other payee groups, your names for payees, account names
         and payees you chose to always ignore or treat as transfers.</p>
       <button type="button" class="btn primary danger-fill" data-undo>Undo imports</button>
     </div>
@@ -122,7 +122,7 @@ export function openUndoImports() {
     const del = new Set([...form.querySelectorAll('[name=del]:checked')].map(x => x.value));
     const what = [
       form.payments.checked && n(pays, 'payment'),
-      del.size && n(del.size, 'group'),
+      del.size && n(del.size, 'payee group'),
     ].filter(Boolean);
     if (what.length && !confirm(`Delete ${what.join(' and ')}? This can't be undone.`)) return;
     const now = new Date().toISOString();
@@ -171,7 +171,7 @@ export async function undoLastImport() {
   const pays = state.entries.reduce((n, e) => n + (e.payments || []).filter(p => p.batch === b.id).length, 0);
   const created = state.entries.filter(e => e.importBatch === b.id);
   const parts = [`${pays} payment${pays === 1 ? '' : 's'}`];
-  if (created.length) parts.push(`the ${created.length} group${created.length === 1 ? '' : 's'} it added (${created.map(e => e.name).join(', ')})`);
+  if (created.length) parts.push(`the ${created.length} payee group${created.length === 1 ? '' : 's'} it added (${created.map(e => e.name).join(', ')})`);
   if (!confirm(`Undo the import of “${b.file}” into ${(b.accounts || [b.account]).map(accountName).join(' and ')} on ${fmtDate(localDay(b.at))}? This removes ${parts.join(' and ')}. Payments you logged yourself go back to how they were.`)) return;
 
   const now = new Date().toISOString();
@@ -217,7 +217,7 @@ export async function undoLastImport() {
   state.settings.importLog = log.slice(0, -1);
   await saveSettings();
   await reload();
-  toast(`Import undone${kept ? ` · kept ${kept} group${kept === 1 ? '' : 's'} with other payments` : ''}`);
+  toast(`Import undone${kept ? ` · kept ${kept} payee group${kept === 1 ? '' : 's'} with other payments` : ''}`);
 }
 
 /** Give a payee your own name, used on the import screen, for matching and in payment notes. */
@@ -260,7 +260,7 @@ export async function renameAccount(key) {
   if (changed.length) await db.putEntries(changed);
   await saveSettings();
   await reload();
-  toast(changed.length ? `Renamed · ${changed.length} group${changed.length === 1 ? '' : 's'} updated` : 'Account renamed');
+  toast(changed.length ? `Renamed · ${changed.length} payee group${changed.length === 1 ? '' : 's'} updated` : 'Account renamed');
 }
 
 /** Transaction ids already dealt with: imported as payments, ignored, or marked as transfers. */
@@ -531,7 +531,7 @@ export function openImport() {
       const lead = of.find(x => x.amount < 0) || of[0] || t;
       pending.set(v, { label: makeName(v.slice(5), lead), out: lead.amount < 0 });
     } else if (v.startsWith('named:')) {
-      pending.set(v, { label: `${v.slice(6)} (new group)`, out: imp.named.get(v.slice(6)) !== 'income' });
+      pending.set(v, { label: `${v.slice(6)} (new payee group)`, out: imp.named.get(v.slice(6)) !== 'income' });
     }
   }
 
@@ -541,13 +541,13 @@ export function openImport() {
     const g = groupOf.get(t.id);
     const opt = (v, text) => `<option value="${esc(v)}" ${d === v ? 'selected' : ''}>${esc(text)}</option>`;
     const list = type => entriesBy(type).map(e => opt(e.id, e.name)).join('')
-      || '<option disabled>No groups yet</option>';
+      || '<option disabled>No payee groups yet</option>';
     // A new entry for this payee: the recurring one spotted, else one with no set schedule (or a
     // one-off if it's the only transaction from them)
     // A recurring payee can also go to an entry of its own with no set schedule
     const plain = ownEntry(t);
-    const make = (g ? opt(`new:${g.key}`, `+ New group: ${g.name} (${C.FREQ[g.frequency].label.toLowerCase()})`) : '')
-      + opt(plain, `+ New group: ${makeName(plain.slice(5), t)}${g ? ' (no set schedule)' : ''}`);
+    const make = (g ? opt(`new:${g.key}`, `+ New payee group: ${g.name} (${C.FREQ[g.frequency].label.toLowerCase()})`) : '')
+      + opt(plain, `+ New payee group: ${makeName(plain.slice(5), t)}${g ? ' (no set schedule)' : ''}`);
     const others = [...pending].filter(([v, p]) => v !== plain && v !== `new:${g?.key}` && (p.out === t.amount < 0 || v === d));
     const type = t.amount < 0 ? 'expense' : 'income';
     const accs = new Set(ts.map(x => x.account.toLowerCase()));
@@ -560,7 +560,7 @@ export function openImport() {
       ${opt('transfer', 'Transfer between my accounts')}
       ${opt(`catch:${type}`, catchLabel)}
       ${make}
-      <option value="pick">Choose a group or type a name…</option>
+      <option value="pick">Choose a payee group or type a name…</option>
       ${others.length ? `<optgroup label="New in this import">${others.map(([v, p]) => opt(v, p.label)).join('')}</optgroup>` : ''}
       <optgroup label="${t.amount < 0 ? 'Expenses' : 'Income'}">${list(type)}</optgroup>
       <optgroup label="${t.amount < 0 ? 'Income (as a refund)' : 'Expenses (as a refund)'}">${list(t.amount < 0 ? 'income' : 'expense')}</optgroup>
@@ -718,7 +718,7 @@ export function openImport() {
         <div class="row static label-row">
           <div class="row-main"><div class="row-title">${esc(g.name)}</div>
             <div class="row-sub">${g.txns.length} × ${g.variable ? '≈' : ''}${money(g.amount)} · ${C.FREQ[g.frequency].label.toLowerCase()} · ${esc(g.payee)}</div></div>
-          <button type="button" class="btn small ${imp.newGroups.has(g.key) ? 'on-btn' : ''}" data-new="${esc(g.key)}">${imp.newGroups.has(g.key) ? '✓ Adding' : 'Add as group'}</button>
+          <button type="button" class="btn small ${imp.newGroups.has(g.key) ? 'on-btn' : ''}" data-new="${esc(g.key)}">${imp.newGroups.has(g.key) ? '✓ Adding' : 'Add as payee group'}</button>
         </div>`).join('')}</section>` : ''}
 
       ${transfers.length ? `<div class="group-title">Transfers between your accounts (${transfers.length})</div>
@@ -729,14 +729,14 @@ export function openImport() {
 
       ${suggested.length ? `<div class="group-title">Matched (${suggested.length})</div>
       <details class="imp-matched" data-pg="__matched" ${matchedOpen ? 'open' : ''}>
-        <summary>✓ ${suggested.length} transaction${suggested.length === 1 ? '' : 's'} going to ${matchedEntries} group${matchedEntries === 1 ? '' : 's'}, nothing to do.
+        <summary>✓ ${suggested.length} transaction${suggested.length === 1 ? '' : 's'} going to ${matchedEntries} payee group${matchedEntries === 1 ? '' : 's'}, nothing to do.
           <span class="imp-show">${matchedOpen ? 'Hide' : 'Review'}</span></summary>
         <section class="card">${matchedList.map(matchedRow).join('')}</section>
       </details>` : ''}
 
       ${rest.length ? `<div class="group-title">Not matched (${payeeList.length} payee${payeeList.length === 1 ? '' : 's'}, ${rest.length} transaction${rest.length === 1 ? '' : 's'})
         <button type="button" class="link small-link" data-ignore-rest>Ignore all of these</button></div>
-      <p class="fine pad-x">Each payee gets a group of its own unless you choose something else. Very similar names
+      <p class="fine pad-x">Each payee gets a payee group of its own unless you choose something else. Very similar names
         (the same shop in different towns) share one. Nothing here needs sorting now — give two payees the same name to
         put them together, or move them later from Settings → Payees.</p>
       <section class="card">${payeeList.map(payeeRow).join('')}</section>` : ''}
@@ -1109,5 +1109,5 @@ export async function applyImport() {
   closeSheet();
   await reload();
   const fresh = logged - linked;
-  toast(`Logged ${fresh} payment${fresh === 1 ? '' : 's'}${linked ? `, updated ${linked} you'd logged` : ''}${added ? `, added ${added} group${added === 1 ? '' : 's'}` : ''}${transferCount ? `, ${transferCount} transfer${transferCount === 1 ? '' : 's'}` : ''}${takenOut ? ` (${takenOut} taken out of spending)` : ''}${ignoredCount ? `, ignored ${ignoredCount}` : ''}`);
+  toast(`Logged ${fresh} payment${fresh === 1 ? '' : 's'}${linked ? `, updated ${linked} you'd logged` : ''}${added ? `, added ${added} payee group${added === 1 ? '' : 's'}` : ''}${transferCount ? `, ${transferCount} transfer${transferCount === 1 ? '' : 's'}` : ''}${takenOut ? ` (${takenOut} taken out of spending)` : ''}${ignoredCount ? `, ignored ${ignoredCount}` : ''}`);
 }

@@ -31,7 +31,7 @@ export function openTidy() {
     return `<section class="card form tidy-dupe" data-dupe="${i}">
       <div class="tidy-names">${all.map(e => `<div><strong>${esc(e.name)}</strong> <span class="muted small-text">${esc(describe(e))}</span></div>`).join('')}</div>
       <label class="field"><span>Keep</span>
-        <select data-keep="${i}" aria-label="Group to keep">${all.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></label>
+        <select data-keep="${i}" aria-label="Payee group to keep">${all.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></label>
       <div class="field tidy-btns">
         <button type="button" class="btn small" data-apart="${i}">Not the same</button>
         <button type="button" class="btn small on-btn" data-merge="${i}">Merge ${all.length === 2 ? 'both' : `all ${all.length}`}</button>
@@ -42,18 +42,18 @@ export function openTidy() {
   <div id="tidy">
     <div class="sheet-head">
       <span></span>
-      <h2 tabindex="-1" autofocus>Tidy up groups</h2>
+      <h2 tabindex="-1" autofocus>Tidy up payee groups</h2>
       <button type="button" class="link strong" data-close>Done</button>
     </div>
     <div class="sheet-body">
       <div class="group-title">Possible duplicates (${dupes.length})</div>
-      ${dupes.length ? `<p class="fine pad-x">These look like the same thing in more than one group. Merging moves their
+      ${dupes.length ? `<p class="fine pad-x">These look like the same thing in more than one payee group. Merging moves their
         payments and payees into the group you keep, and removes the others.</p>
         ${dupes.map(cluster).join('')}`
-        : '<p class="empty-small">No groups look like duplicates.</p>'}
+        : '<p class="empty-small">No payee groups look like duplicates.</p>'}
 
       <div class="group-title">Suggested categories (${cats.length})</div>
-      ${cats.length ? `<p class="fine pad-x">Groups with no category yet, and one that fits from their name or similar groups.
+      ${cats.length ? `<p class="fine pad-x">Payee groups with no category yet, and one that fits from their name or similar groups.
         Untick any that are wrong.</p>
         <section class="card list">${cats.map(({ e, category }) => `
           <label class="row static tidy-cat">

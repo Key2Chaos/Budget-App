@@ -88,7 +88,7 @@ const actions = {
     const s = Bank.suggestSchedule(e);
     return s ? Bank.withSchedule(e, s) : e;
   }, e => `${e.name} set to ${C.FREQ[e.frequency].label.toLowerCase()}`),
-  'not-regular': t => updateGroup(t.dataset.id, e => ({ ...e, scheduleDismissed: t.dataset.freq }), e => `${e.name} stays variable`),
+  'not-regular': t => updateGroup(t.dataset.id, e => ({ ...e, scheduleDismissed: t.dataset.freq }), e => `${e.name} stays with no set schedule`),
   'tags-clear': () => { state.tags = []; state.sel = null; render(); },
   breakdown: t => { state.breakdown = t.dataset.by; render(); },
   'go-settings': () => { state.tab = 'settings'; render(); },
@@ -110,7 +110,7 @@ const actions = {
   import: () => $('#importFile').click(),
   persist: async () => { const ok = await navigator.storage.persist(); toast(ok ? 'Storage protected' : 'Not granted — add to Home Screen first'); render(); },
   erase: async () => {
-    if (!confirm('Erase ALL groups on this device? Export a backup first if you might need them.')) return;
+    if (!confirm('Erase ALL payee groups on this device? Export a backup first if you might need them.')) return;
     if (!confirm('Are you sure? This cannot be undone.')) return;
     await db.clearEntries();
     Object.assign(state.settings, { lastBackup: null, budgets: [], balance: null, paydayId: null,

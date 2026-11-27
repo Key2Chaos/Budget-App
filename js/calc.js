@@ -12,7 +12,7 @@ export const FREQ = {
   yearly:      { label: 'Yearly',         perMonth: 1 / 12,  months: 12 },
   // No set schedule (e.g. prepaid top-ups, fuel): paid whenever. The amount is "about per month",
   // there are no due dates, and spending comes from the payments logged.
-  irregular:   { label: 'Variable (no set schedule)', short: 'Variable', perMonth: 1, irregular: true },
+  irregular:   { label: 'No set schedule', short: 'No set schedule', perMonth: 1, irregular: true },
 };
 
 /** True when the entry has no set schedule on that date. */
