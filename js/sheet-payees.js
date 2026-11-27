@@ -1,4 +1,5 @@
-// The Payees sheet (Settings → Payees): everyone you've paid or been paid by, from bank imports.
+// The Payees sheet (Settings → Payees; on a computer, the Payees page in js/view-payees.js opens
+// the same sheet for one payee): everyone you've paid or been paid by, from bank imports.
 // Rename a payee, choose its group (its payments move there, and future imports follow), set it
 // to always ignore or treat as a transfer, or merge two spellings of the same payee.
 import { db } from './db.js';
@@ -36,7 +37,7 @@ export function payeeList() {
 
 const groupName = id => state.entries.find(e => e.id === id)?.name;
 /** Where a payee's transactions go, in words. */
-function status(row) {
+export function payeeStatus(row) {
   const p = row.payee;
   if (p.rule === 'ignore') return 'Always ignored';
   if (p.rule === 'transfer') return 'Transfer between your accounts';
@@ -44,7 +45,7 @@ function status(row) {
   const where = [...new Set(row.pays.map(x => x.e.name))];
   return where.length ? `Ungrouped · in ${where.slice(0, 2).join(', ')}${where.length > 2 ? '…' : ''}` : 'Ungrouped';
 }
-const isUngrouped = row => !row.payee.rule && !(row.payee.groupId && groupName(row.payee.groupId));
+export const isUngrouped = row => !row.payee.rule && !(row.payee.groupId && groupName(row.payee.groupId));
 
 export function openPayees() {
   const rows = payeeList();
@@ -69,7 +70,7 @@ export function openPayees() {
       ${shown.length ? `<section class="card list">${shown.map(r => `
         <button type="button" class="row" data-payee="${esc(r.payee.id)}">
           <div class="row-main"><div class="row-title">${esc(M.payeeTitle(r.payee))}</div>
-            <div class="row-sub">${esc(status(r))}${r.payee.keys.length > 1 ? ` · ${r.payee.keys.length} spellings` : ''}</div></div>
+            <div class="row-sub">${esc(payeeStatus(r))}${r.payee.keys.length > 1 ? ` · ${r.payee.keys.length} spellings` : ''}</div></div>
           <div class="row-amt">${r.pays.length ? money(Math.abs(r.total)) : ''}<small>${r.pays.length} payment${r.pays.length === 1 ? '' : 's'}</small></div>
         </button>`).join('')}</section>`
         : `<p class="empty-small">${rows.length ? 'No payees match.' : 'No payees yet. They’re added when you import a bank statement.'}</p>`}
@@ -107,7 +108,7 @@ export function openPayee(id) {
   sheet.innerHTML = `
   <div id="payee">
     <div class="sheet-head">
-      <button type="button" class="link" data-back>‹ Payees</button>
+      ${state.tab === 'payees' ? '<span></span>' : '<button type="button" class="link" data-back>‹ Payees</button>'}
       <h2 tabindex="-1" autofocus>${esc(title)}</h2>
       <button type="button" class="link strong" data-close>Done</button>
     </div>
@@ -202,7 +203,7 @@ async function mergeInto(row) {
   const title = M.payeeTitle(row.payee);
   const choice = await pick({
     title: `Merge into ${title}`, placeholder: 'Search payees',
-    items: others.map(r => ({ id: r.payee.id, label: M.payeeTitle(r.payee), sub: `${status(r)} · ${r.payee.keys.join(', ')}` })),
+    items: others.map(r => ({ id: r.payee.id, label: M.payeeTitle(r.payee), sub: `${payeeStatus(r)} · ${r.payee.keys.join(', ')}` })),
     suggested: others.filter(r => Bank.similarPayees(title, M.payeeTitle(r.payee))).map(r => r.payee.id),
   });
   if (!choice?.id) return;

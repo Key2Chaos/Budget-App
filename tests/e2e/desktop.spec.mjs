@@ -163,14 +163,78 @@ test('Payee groups: a table whose headings sort, biggest a month first', async (
 
 test('Payees and Accounts are in the sidebar on a computer, and not on a phone', async ({ page }) => {
   await openWithSample(page);
-  await page.locator('.tabbar [data-open=payees]').click();
-  await expect(page.locator('#sheet[open] h2')).toHaveText('Payees');
-  await page.keyboard.press('Escape');
+  await page.locator('.tabbar [data-tab=payees]').click();
+  await expect(page.locator('#title')).toHaveText('Payees');
   await page.locator('.tabbar [data-open=accounts]').click();
   await expect(page.locator('#sheet[open] h2')).toHaveText('Accounts');
   await page.keyboard.press('Escape');
+  await tab(page, 'overview'); // (narrowing on the Payees page opens the Payees sheet: see below)
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator('.tabbar [data-open=payees]')).toBeHidden();
+  await expect(page.locator('.tabbar [data-tab=payees]')).toBeHidden();
   await tab(page, 'entries');
   await expect(row(page, 'Netflix')).toBeVisible(); // the phone list is back
+});
+
+/** The sample data plus the card statement, imported as offered. */
+async function withCardStatement(page) {
+  await openWithSample(page);
+  await tab(page, 'settings');
+  await page.locator('#bankFile').setInputFiles(fileURLToPath(new URL('../fixtures/bank/commbank-credit-card.csv', import.meta.url)));
+  await nameAccounts(page);
+  await page.locator('#import .sheet-head [data-apply]').click();
+  await expect(page.locator('#toast')).toContainText('Logged');
+}
+
+test('Payees page: a table to sort, and several payees put in a payee group at once', async ({ page }) => {
+  await withCardStatement(page);
+  await page.locator('.tabbar [data-tab=payees]').click();
+  await expect(page.locator('.tabbar [data-tab=payees]')).toHaveClass(/active/);
+  const prow = name => page.locator('.p-table tbody tr', { has: page.locator('.g-open', { hasText: name }) });
+  const names = () => page.locator('.p-table tbody .g-open').allTextContents();
+  // most payments first: Disney Plus and Google One (3 each)
+  expect((await names()).slice(0, 2).sort()).toEqual(['Disney Plus', 'Google One']);
+  await expect(prow('Disney Plus').locator('.p-total')).toHaveText('−$41.97'.replace('$', '£'));
+  await page.locator('.p-table th.p-total button').click();
+  expect((await names())[0]).toBe('Aami Insurance'); // the biggest total
+  await page.locator('.p-table th.p-name button').click();
+  const az = await names();
+  expect(az).toEqual([...az].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())));
+  await shot(page, 'payees');
+
+  // tick two (ticking doesn't open the payee) and put them in a new payee group
+  await prow('Disney Plus').locator('input[type=checkbox]').check();
+  await prow('Google One').locator('input[type=checkbox]').check();
+  await expect(page.locator('#sheet[open]')).toHaveCount(0);
+  await expect(page.locator('.tx-bulk')).toContainText('2 selected · 6 payments');
+  await page.getByRole('button', { name: 'Put in payee group…' }).click();
+  await page.locator('#picker .pick-search').fill('Streaming and storage');
+  await page.locator('#picker').getByRole('button', { name: /Create “Streaming and storage”/ }).click();
+  await expect(page.locator('#toast')).toContainText('2 payees → Streaming and storage · 6 payments moved');
+  await expect(prow('Disney Plus').locator('.p-where')).toHaveText('Streaming and storage');
+  await expect(prow('Google One').locator('.p-where')).toHaveText('Streaming and storage');
+  // the groups each had to themselves were made by the import, so they've gone
+  await tab(page, 'entries');
+  await expect(page.locator('.g-table .g-open', { hasText: /^Disney Plus$/ })).toHaveCount(0);
+  await expect(page.locator('.g-table .g-open', { hasText: 'Streaming and storage' })).toHaveCount(1);
+
+  // always ignore, from the filter of ungrouped ones; then a payee opens its sheet, with no "‹ Payees"
+  await page.locator('.tabbar [data-tab=payees]').click();
+  await page.locator('#pSearch').fill('kmart');
+  await expect(page.locator('#pSearch')).toBeFocused();
+  await page.locator('[data-psel-all]').check();
+  await page.getByRole('button', { name: 'Always ignore' }).click();
+  await expect(page.locator('#toast')).toContainText('always ignored from the next import');
+  await expect(prow('Kmart').locator('.p-where')).toHaveText('Always ignored');
+  await page.locator('.toolbar [data-filter=rules]').click();
+  expect(await names()).toEqual(['Kmart Bondi']);
+  await prow('Kmart').locator('.p-last').click();
+  await expect(page.locator('#sheet[open] h2')).toHaveText('Kmart Bondi');
+  await expect(page.locator('#sheet [data-back]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#sheet[open]')).toHaveCount(0);
+
+  // narrowing to phone size swaps the page for the Payees sheet in Settings
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#title')).toHaveText('Settings');
+  await expect(page.locator('#sheet[open] h2')).toHaveText('Payees');
 });
