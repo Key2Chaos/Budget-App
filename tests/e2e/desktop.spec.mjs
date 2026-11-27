@@ -64,7 +64,7 @@ test('Groups and Settings use the width', async ({ page }) => {
   const seg = await box(page.locator('.toolbar .seg'));
   const search = await box(page.locator('#search'));
   expect(Math.abs(seg.y - search.y)).toBeLessThan(8); // on one row
-  await page.locator('#search').fill('net');
+  await page.locator('#search').fill('netf');
   await expect(page.locator('#search')).toBeFocused();
   await page.locator('#search').fill('');
   await shot(page, 'groups');
@@ -80,7 +80,7 @@ test('Groups and Settings use the width', async ({ page }) => {
 test('the edit sheet is wider, and opens from a click', async ({ page }) => {
   await openWithSample(page);
   await tab(page, 'entries');
-  await row(page, 'Netflix').first().click();
+  await page.locator('.g-table tbody tr', { hasText: 'Netflix' }).locator('.g-cat').click(); // anywhere on the row
   const sheet = await box(page.locator('#sheet[open]'));
   expect(sheet.width).toBeGreaterThan(600);
   expect(sheet.width).toBeLessThanOrEqual(720);
@@ -121,4 +121,56 @@ test('Transactions: a table with columns that sort, opened from the Overview', a
   expect(new Set(ys).size).toBe(1);
   await page.locator('.tx-table tbody tr').nth(1).locator('input[type=checkbox]').check();
   await shot(page, 'transactions');
+});
+
+test('Payee groups: a table whose headings sort, biggest a month first', async ({ page }) => {
+  await openWithSample(page);
+  await tab(page, 'entries');
+  await expect(page.locator('#view .row')).toHaveCount(0); // no phone list
+  const names = () => page.locator('.g-table tbody .g-open').allTextContents();
+  const head = name => page.locator(`.g-table th.${name}`);
+  // biggest a month first: Salary (+2,950), then Rent (505)
+  await expect(head('g-per')).toHaveAttribute('aria-sort', 'descending');
+  expect((await names()).slice(0, 2)).toEqual(['Salary', 'Rent']);
+  // ended and one-off groups have nothing a month, so they're last
+  expect((await names()).slice(-2).sort()).toEqual(['Freelance design job', 'Gym']);
+
+  await head('g-name').locator('button').click();
+  await expect(head('g-name')).toHaveAttribute('aria-sort', 'ascending');
+  const az = await names();
+  expect(az).toEqual([...az].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())));
+  await head('g-name').locator('button').click();
+  await expect(head('g-name')).toHaveAttribute('aria-sort', 'descending');
+
+  // next due: soonest first, with no date (ended, one-off gone by) at the bottom
+  await head('g-next').locator('button').click();
+  await expect(head('g-next')).toHaveAttribute('aria-sort', 'ascending');
+  expect((await names())[0]).toBe('Groceries'); // weekly, 23 Nov
+  expect(await page.locator('.g-table tbody tr').last().locator('.g-next').textContent()).toBe('—');
+
+  // search and the type filter still apply; the per-year heading follows the Overview's switch
+  await page.locator('#search').fill('netf');
+  await expect(page.locator('#search')).toBeFocused();
+  expect(await names()).toEqual(['Netflix']);
+  await page.locator('#search').fill('');
+  await tab(page, 'overview');
+  await page.locator('.summary [data-period=year]').click();
+  await tab(page, 'entries');
+  await expect(head('g-per')).toContainText('A year');
+  expect(await noSideScroll(page)).toBe(true);
+  await shot(page, 'groups-table');
+});
+
+test('Payees and Accounts are in the sidebar on a computer, and not on a phone', async ({ page }) => {
+  await openWithSample(page);
+  await page.locator('.tabbar [data-open=payees]').click();
+  await expect(page.locator('#sheet[open] h2')).toHaveText('Payees');
+  await page.keyboard.press('Escape');
+  await page.locator('.tabbar [data-open=accounts]').click();
+  await expect(page.locator('#sheet[open] h2')).toHaveText('Accounts');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.tabbar [data-open=payees]')).toBeHidden();
+  await tab(page, 'entries');
+  await expect(row(page, 'Netflix')).toBeVisible(); // the phone list is back
 });
