@@ -32,6 +32,12 @@ No backend, no account. All data lives on the device in IndexedDB.
   Ended).
 - **Payees and Accounts in the sidebar** on a computer, under *Your data* (on a phone they stay in
   Settings).
+  - **Payees** is a page of its own there: a table of every payee with the bank's text, their payee
+    group (or *Ungrouped · in …*, *Always ignored*, *Transfer*), number of payments, total and last
+    paid. Search, filter (All, Ungrouped, Ignored & transfers) and click headings to sort.
+  - Tick several payees and **Put in payee group…** (their payments move there, and future imports
+    follow), **Always ignore** or **Transfer** in one go. Click a payee to rename it or merge
+    spellings, as in Settings → Payees.
 - **Transactions** (its own tab): every payment in every payee group in one table — date, payee,
   payee group, category, account, method and amount.
   - Search (payees, the bank's text, notes, amounts), choose a period (this month, last 12 full
@@ -378,6 +384,7 @@ ask for the history to be rewritten if you also want it gone from old commits.
 | `js/core.js` | Shared state, constants and helpers (money, dates, labels, tags, toast). Imports no other UI file, so it always loads first |
 | `js/render.js` | Draws the current tab; `reload()` re-reads entries |
 | `js/view-overview.js`, `js/view-entries.js`, `js/view-transactions.js`, `js/view-settings.js` | The four tabs. `view-transactions.js` also has `drillDown()`, which the Overview's figures use |
+| `js/view-payees.js` | The Payees page (computers only, from the sidebar) |
 | `js/sheet-entry.js` | The entry sheet (Summary, Transactions, Accounts), save and delete |
 | `js/sheet-budgets.js`, `js/sheet-labels.js` | The Budgets and Manage labels sheets |
 | `js/importer.js` | Bank import screens: review, apply, undo (the pure logic is in `bank.js`) |

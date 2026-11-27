@@ -715,3 +715,14 @@ button.cat { display: block; }
     text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
   }
 }
+
+/* ---------- Payees page, on a computer ---------- */
+.p-table .p-name .tx-note { max-width: 40ch; }
+.p-table .p-count, .p-table .p-total { text-align: right; white-space: nowrap; }
+.p-table th.p-count button, .p-table th.p-total button { text-align: right; }
+.p-table .p-total { font-weight: 600; }
+.p-table .p-last { white-space: nowrap; padding-right: 16px; }
+.p-loose { color: var(--warn); }
+.toolbar .seg.p-seg { flex: 0 0 auto; }
+.p-seg button { white-space: nowrap; }
+.tx-bulk .btn.small { background: var(--card); }

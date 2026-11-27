@@ -6,6 +6,7 @@ import { state, $, esc, uid, fmtCache, fmtDate, toast, saveSettings, view, wideS
 import { reload, render } from './render.js';
 import { renderEntries } from './view-entries.js';
 import { txActions, txInput, txChange, drillDown } from './view-transactions.js';
+import { payeeActions, payeeInput, payeeChange } from './view-payees.js';
 import { openSheet } from './sheet-entry.js';
 import { manageBudgets } from './sheet-budgets.js';
 import { forgetRules, openUndoImports, undoLastImport, renameAccount, startBankImport } from './importer.js';
@@ -30,6 +31,7 @@ async function updateGroup(id, change, message) {
 // ---------- Global events ----------
 const actions = {
   ...txActions,
+  ...payeeActions,
   add: () => openSheet(),
   sample: async () => {
     await db.putEntries(sampleEntries());
@@ -132,11 +134,12 @@ const actions = {
 };
 
 view.addEventListener('click', ev => {
+  if (ev.target.closest('.tx-check')) return; // a tick box in a table row that opens something: just tick it
   const t = ev.target.closest('[data-action]');
   if (t && actions[t.dataset.action]) actions[t.dataset.action](t, ev);
 });
 view.addEventListener('input', ev => {
-  if (txInput(ev)) return;
+  if (txInput(ev) || payeeInput(ev)) return;
   if (ev.target.id === 'search') {
     state.search = ev.target.value;
     const pos = ev.target.selectionStart;
@@ -145,7 +148,7 @@ view.addEventListener('input', ev => {
   }
 });
 view.addEventListener('change', async ev => {
-  if (txChange(ev)) return;
+  if (txChange(ev) || payeeChange(ev)) return;
   if (ev.target.id === 'currency') {
     state.settings.currency = ev.target.value;
     fmtCache.clear();
@@ -172,7 +175,7 @@ view.addEventListener('change', async ev => {
 });
 document.querySelector('.tabbar').addEventListener('click', ev => {
   const o = ev.target.closest('button[data-open]'); // Payees / Accounts in the sidebar on a computer
-  if (o) return o.dataset.open === 'payees' ? openPayees() : openAccounts();
+  if (o) return openAccounts();
   const b = ev.target.closest('button[data-tab]');
   if (!b) return;
   if (state.tab === b.dataset.tab) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
@@ -183,7 +186,11 @@ document.querySelector('.tabbar').addEventListener('click', ev => {
 $('#addBtn').addEventListener('click', () => openSheet());
 // The chart is drawn at a different size on computers, and Payee groups is a table there, so redraw
 // when the window crosses the breakpoint
-wideScreen.addEventListener('change', () => { if (state.tab === 'overview' || state.tab === 'entries') render(); });
+wideScreen.addEventListener('change', () => {
+  // The Payees page is for computers; a phone has the Payees sheet in Settings
+  if (state.tab === 'payees' && !wideScreen.matches) { state.tab = 'settings'; render(); openPayees(); return; }
+  if (state.tab === 'overview' || state.tab === 'entries') render();
+});
 
 // ---------- Boot ----------
 (async function init() {
