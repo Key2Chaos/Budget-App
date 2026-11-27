@@ -15,6 +15,18 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 4 | **Duplicate entry.** A "Duplicate" button in the edit sheet | S | Faster to add similar bills |
 | 5 | **Shorter payment logs.** Show the latest 12 payments with "Show all", newest first | S | Long logs make the edit sheet very long after a year or two |
 
+## Desktop ideas (from the 27 Nov 2026 review)
+
+| # | Item | Size | Why |
+|---|------|------|-----|
+| D1 | **Payee groups as a sortable table** (name, category, schedule, next due, a month, last 12 months, tags) | M | "What are my biggest bills?" at a glance. Can reuse the Transactions table |
+| D2 | **Open a payee group in a side panel** instead of a pop-up, with ↑/↓ to step through the list | M | Click from one group to the next without closing anything |
+| D3 | **Payees and Accounts in the sidebar**, not inside Settings | S | They're your data, used often |
+| D4 | **Keyboard shortcuts**: N new group, / search, Esc close, Ctrl+Z undo (with backlog #2) | S | Faster on a computer |
+| D5 | **Drop a CSV anywhere** on the window to import it | S | |
+| D6 | **Chart details on hover**, not only on click | S | |
+| D7 | **Edit in place** in the tables: category, amount, tags | M | Fewer trips into the edit sheet |
+
 ## Soon
 
 | # | Item | Size | Why |
@@ -78,4 +90,5 @@ Size: **S** is about an hour, **M** is an afternoon, **L** is several sessions.
 | 2026-11-22 | Design for accounts, payees and groups agreed ([docs/DESIGN.md](docs/DESIGN.md)). `js/app.js` split into one file per screen (no change in behaviour) |
 | 2026-11-22 | Bank import: every unmatched payee gets an entry of its own (no more Everyday spending by default); very similar payees share one; transfers are taken out of those entries too. Payment log: signed amounts with ±, credits in green, "Received" / "Paid back" on income |
 | 2026-11-26 | Smarter schedules: stricter recurring detection (3+ payments, refunds and stopped ones left out); Variable estimates over 12 months, only after 3 payments, and *Don't forecast* for projects; Overview "Check these groups" for bills that stopped and Variable groups paid on a schedule; Settings → Tidy up groups (merge duplicates, suggested categories, new *Eating out* category). Bank import: you name or choose each statement's account unless it's recognised; DD/BPAYN methods; better shop names; import notes follow the group's payee |
+| 2026-11-27 | **Transactions** tab: every payment in one table with search, period and filters, sortable columns on a computer, and *Move to…* for several payments at once; *By payee group* compares what's logged with what the Overview counts. Overview figures (Income, Expenses, budgets, Where it goes, a chart month) open their payments |
 | 2026-11-27 | User guide decisions: *Groups* are now *Payee groups*; *Variable* is now *No set schedule* (so it isn't confused with *Amount varies*); a **12 mo** view of what the last 12 full months came to, beside the year at today's rates; Settings → Budgets mentions payee-group budgets |

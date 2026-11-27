@@ -27,7 +27,7 @@ export const METHODS = [
 export const localDay = ts => C.iso(new Date(ts));
 export const CURRENCIES = ['GBP', 'USD', 'EUR', 'AUD', 'CAD', 'NZD', 'CHF', 'SEK', 'NOK', 'DKK', 'JPY', 'INR', 'SGD', 'ZAR'];
 export const FORECAST_MONTHS = 3;
-export const TITLES = { overview: 'Overview', entries: 'Payee groups', settings: 'Settings' };
+export const TITLES = { overview: 'Overview', entries: 'Payee groups', txns: 'Transactions', settings: 'Settings' };
 export const STARTER_TAGS = ['shared', 'essential', 'work', 'tax-deductible', 'cancel-soon', 'bundle', 'streaming', 'cloud-storage'];
 
 // ---------- Labels (category / payment method / tag) ----------

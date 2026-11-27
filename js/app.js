@@ -5,6 +5,7 @@ import { APP_ID, SCHEMA_VERSION, migrateBackup } from './schema.js';
 import { state, $, esc, uid, fmtCache, fmtDate, toast, saveSettings, view, wideScreen } from './core.js';
 import { reload, render } from './render.js';
 import { renderEntries } from './view-entries.js';
+import { txActions, txInput, txChange, drillDown } from './view-transactions.js';
 import { openSheet } from './sheet-entry.js';
 import { manageBudgets } from './sheet-budgets.js';
 import { forgetRules, openUndoImports, undoLastImport, renameAccount, startBankImport } from './importer.js';
@@ -28,6 +29,7 @@ async function updateGroup(id, change, message) {
 
 // ---------- Global events ----------
 const actions = {
+  ...txActions,
   add: () => openSheet(),
   sample: async () => {
     await db.putEntries(sampleEntries());
@@ -43,6 +45,8 @@ const actions = {
     toast('Sample data added — erase it any time in Settings');
   },
   edit: t => openSheet(state.entries.find(e => e.id === t.dataset.id)),
+  drill: t => { const d = t.dataset; drillDown({ kind: d.kind, value: d.value, period: d.period, type: d.type, label: d.label,
+    amount: d.amount === '' ? null : Number(d.amount), note: d.note }); },
   range: t => { state.range = t.dataset.range === 'all' ? 'all' : Number(t.dataset.range); state.sel = null; render(); },
   filter: t => { state.filter = t.dataset.filter; render(); },
   tag: t => {
@@ -126,6 +130,7 @@ view.addEventListener('click', ev => {
   if (t && actions[t.dataset.action]) actions[t.dataset.action](t, ev);
 });
 view.addEventListener('input', ev => {
+  if (txInput(ev)) return;
   if (ev.target.id === 'search') {
     state.search = ev.target.value;
     const pos = ev.target.selectionStart;
@@ -134,6 +139,7 @@ view.addEventListener('input', ev => {
   }
 });
 view.addEventListener('change', async ev => {
+  if (txChange(ev)) return;
   if (ev.target.id === 'currency') {
     state.settings.currency = ev.target.value;
     fmtCache.clear();

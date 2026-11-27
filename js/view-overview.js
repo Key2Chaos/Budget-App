@@ -126,6 +126,7 @@ export function renderOverview() {
   const byTag = state.breakdown === 'tag';
   const byGroup = state.breakdown === 'group';
   const cats = {};
+  const groupIds = {}; // breakdown by payee group: name → the group's id, to open its transactions
   for (const e of entries) {
     if (e.type !== 'expense') continue;
     // month: what this calendar month costs (incl. one-offs); year: 12 × today's monthly rate;
@@ -134,6 +135,7 @@ export function renderOverview() {
     if (v <= 0) continue;
     const keys = byTag ? (e.tags?.length ? e.tags.map(t => '#' + t) : ['Untagged']) : byGroup ? [e.name] : [e.category || 'Other'];
     for (const k of keys) cats[k] = (cats[k] || 0) + v;
+    if (byGroup) groupIds[e.name] ||= e.id;
   }
   const allCats = Object.entries(cats).sort((a, b) => b[1] - a[1]);
   // By group there can be dozens: the biggest 12, and the rest together
@@ -141,6 +143,13 @@ export function renderOverview() {
     ? [...allCats.slice(0, 12), [`${allCats.length - 12} other payee groups`, allCats.slice(12).reduce((n, x) => n + x[1], 0)]]
     : allCats;
   const catMax = catList.length ? catList[0][1] : 1;
+  // Clicking a figure opens the Transactions tab filtered to match (see drillDown in view-transactions.js)
+  const drillPeriod = yearly || lastYear ? '12m' : 'month';
+  const periodWords = yearly || lastYear ? lastYearLabel : monthLong.format(now);
+  const drillNote = yearly ? 'The Overview shows a year at today’s rates; these are the last 12 full months.' : '';
+  const drill = ({ kind, value, label, amount, period = drillPeriod, type = 'all', note = drillNote }) =>
+    `data-action="drill" data-kind="${kind}" data-value="${esc(value)}" data-period="${period}" data-type="${type}"
+      data-label="${esc(label)}" data-amount="${amount ?? ''}" data-note="${esc(note)}" title="See these payments"`;
   const filterNote = state.tags.length ? `<p class="fine">Showing only payee groups tagged ${state.tags.map(t => '#' + esc(t)).join(' + ')}.</p>` : '';
 
   view.innerHTML = `
@@ -193,8 +202,8 @@ export function renderOverview() {
       ${(() => {
         const t = yearly || lastYear ? yr : cur;
         return `<div class="summary-grid">
-        <div><span class="k">Income</span><span class="v pos">${money(t.income)}</span></div>
-        <div><span class="k">Expenses</span><span class="v neg">${money(t.expense)}</span></div>
+        <button class="drill-fig" ${drill({ kind: 'type', value: 'income', label: `Income · ${periodWords}`, amount: t.income })}><span class="k">Income</span><span class="v pos">${money(t.income)}</span></button>
+        <button class="drill-fig" ${drill({ kind: 'type', value: 'expense', label: `Expenses · ${periodWords}`, amount: t.expense })}><span class="k">Expenses</span><span class="v neg">${money(t.expense)}</span></button>
         <div class="net"><span class="k">${filtered ? 'Net for these tags' : 'Left over'}</span><span class="v ${t.net >= 0 ? 'pos' : 'neg'}">${money(t.net)}</span></div>
       </div>`;
       })()}
@@ -207,13 +216,18 @@ export function renderOverview() {
     ${budgets.length ? `<section class="card" data-col="side">
       <div class="card-head"><h3>Budgets</h3><button class="link small-link" data-action="manage-budgets">Edit</button></div>
       <p class="fine">This month</p>
-      <div class="cats">${budgets.map(s => `
-        <div class="cat">
-          <div class="cat-top"><span>${s.budget.kind === 'tag' ? '#' : ''}${esc(s.budget.kind === 'group' ? state.entries.find(e => e.id === s.budget.groupId)?.name || s.budget.label : s.budget.label)}</span>
+      <div class="cats">${budgets.map(s => {
+        const name = s.budget.kind === 'group' ? state.entries.find(e => e.id === s.budget.groupId)?.name || s.budget.label : s.budget.label;
+        const value = s.budget.kind === 'group' ? state.entries.find(e => e.id === s.budget.groupId)?.id : s.budget.label;
+        return `
+        <${value ? 'button' : 'div'} class="cat" ${value ? drill({ kind: s.budget.kind, value, type: 'expense', period: 'month', note: '',
+          label: `${s.budget.kind === 'tag' ? '#' : ''}${name} · budget for ${monthLong.format(now)}`, amount: s.spent }) : ''}>
+          <div class="cat-top"><span>${s.budget.kind === 'tag' ? '#' : ''}${esc(name)}</span>
             <span>${money(s.spent)} <span class="muted">of ${money(s.budget.amount)}</span></span></div>
           <div class="bar ${s.over ? 'over' : s.near ? 'near' : ''}"><span style="width:${Math.min(100, s.pct * 100).toFixed(1)}%"></span></div>
           <div class="cat-note ${s.over ? 'neg' : ''}">${s.over ? `Over by ${money(-s.left)}` : `${money(s.left)} left`}</div>
-        </div>`).join('')}
+        </${value ? 'button' : 'div'}>`;
+      }).join('')}
       </div></section>` : ''}
 
     ${pd ? (() => {
@@ -314,11 +328,18 @@ export function renderOverview() {
           <button data-action="breakdown" data-by="tag" class="${byTag ? 'on' : ''}">Tag</button>
         </div></div>
       <p class="fine">${yearly ? 'Per year at today’s rates' : lastYear ? esc(lastYearLabel) : 'This month'}${byTag ? ' · a payee group with several tags counts towards each' : ''}</p>
-      <div class="cats">${catList.map(([name, v]) => `
-        <div class="cat">
+      <div class="cats">${catList.map(([name, v]) => {
+        // "Untagged" and "12 other payee groups" are made up of several things, so they don't open
+        const target = byTag ? (name.startsWith('#') ? { kind: 'tag', value: name.slice(1) } : null)
+          : byGroup ? (groupIds[name] ? { kind: 'group', value: groupIds[name] } : null)
+          : { kind: 'category', value: name };
+        const tag = target ? 'button' : 'div';
+        return `
+        <${tag} class="cat" ${target ? drill({ ...target, type: 'expense', label: `${name} · ${periodWords}`, amount: Math.round(v * 100) / 100 }) : ''}>
           <div class="cat-top"><span>${esc(name)}</span><span>${money(v)} <span class="muted">${Math.round((v / (yearly || lastYear ? yr.expense : cur.expense)) * 100)}%</span></span></div>
           <div class="bar"><span style="width:${((v / catMax) * 100).toFixed(1)}%"></span></div>
-        </div>`).join('')}
+        </${tag}>`;
+      }).join('')}
       </div></section>` : ''}
     </div>
   `;
@@ -349,5 +370,8 @@ export function updateReadout(currentIdx) {
       <span><i class="sw income"></i>${money(d.income)}</span>
       <span><i class="sw expense"></i>${money(d.expense)}</span>
       <span class="${d.net >= 0 ? 'pos' : 'neg'}">Net ${money(d.net)}</span>
-    </div>`;
+    </div>
+    ${state.sel <= currentIdx ? `<button class="link small-link ro-drill" data-action="drill" data-kind="month" data-value=""
+      data-period="m:${d.y}-${String(d.m + 1).padStart(2, '0')}" data-type="all" data-label="${esc(monthLong.format(new Date(d.y, d.m, 1)))}" data-amount=""
+      data-note="">See the payments ›</button>` : ''}`;
 }
